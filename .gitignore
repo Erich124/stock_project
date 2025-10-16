@@ -126,3 +126,5 @@ app.*.symbols
 __pycache__/
 *.pyc
 >>>>>>> 8c0b731 (Add full Flutter app + backend)
+.idea/
+.metadata

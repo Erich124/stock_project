@@ -1,6 +1,14 @@
+// lib/stock_details_page.dart
+import 'package:flutter/foundation.dart' show kIsWeb, defaultTargetPlatform, TargetPlatform;
 import 'package:flutter/material.dart';
+
 import 'models.dart';
 import 'services/alpha_vantage.dart';
+
+// NEW: backend client + repo + social trends UI
+import 'services/api_client.dart';
+import 'services/market_repo.dart';
+import 'widgets/social_trends_card.dart';
 
 class StockDetailsPage extends StatefulWidget {
   final StockSummary summary;
@@ -14,19 +22,49 @@ class _StockDetailsPageState extends State<StockDetailsPage> {
   late Future<LiveQuote> _future;
   String? _error;
 
+  // NEW: repo + sentiment summary (from backend)
+  late final MarketRepo _repo;
+  SentimentSummary? _sentSummary;
+
   @override
   void initState() {
     super.initState();
+    // Live pricing (you already had this)
     _future = fetchStockQuote(widget.summary.symbol);
+
+    // Backend base URL:
+    // - Android emulator must use 10.0.2.2
+    // - iOS simulator/Web/desktop can use 127.0.0.1
+    final baseUrl = (!kIsWeb && defaultTargetPlatform == TargetPlatform.android)
+        ? 'http://10.0.2.2:8000'
+        : 'http://127.0.0.1:8000';
+
+    _repo = MarketRepo(ApiClient(baseUrl: baseUrl));
+
+    // Fetch sentiment summary once for the “Prediction / Recommendation” card
+    _loadSentimentSummary();
+  }
+
+  Future<void> _loadSentimentSummary() async {
+    try {
+      final (_, summary) = await _repo.sentiment(widget.summary.symbol);
+      if (!mounted) return;
+      setState(() => _sentSummary = summary);
+    } catch (_) {
+      // keep silent; SocialTrendsCard will still render its own data/errors
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+    final symbol = widget.summary.symbol;
+
     return Scaffold(
-      appBar: AppBar(title: Text('${widget.summary.symbol} Details')),
+      appBar: AppBar(title: Text('$symbol Details')),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
+          // ===== Live Price Card =====
           FutureBuilder<LiveQuote>(
             future: _future,
             builder: (context, snap) {
@@ -37,8 +75,7 @@ class _StockDetailsPageState extends State<StockDetailsPage> {
                     title: const Text('Loading live price…'),
                     subtitle: const Text('Stock Pricing'),
                     trailing: const SizedBox(
-                      width: 18,
-                      height: 18,
+                      width: 18, height: 18,
                       child: CircularProgressIndicator(strokeWidth: 2),
                     ),
                   ),
@@ -87,29 +124,31 @@ class _StockDetailsPageState extends State<StockDetailsPage> {
               );
             },
           ),
+
           const SizedBox(height: 8),
-          Card(
-            child: const ListTile(
-              leading: Icon(Icons.trending_up),
-              title: Text('Social Trends'),
-              subtitle: Text('Twitter / Reddit / Google Trends (from Flask)'),
-            ),
-          ),
+
+          // ===== Social Trends Card (Reddit + sentiment series + links) =====
+          SocialTrendsCard(symbol: symbol, repo: _repo),
+
           const SizedBox(height: 8),
+
+          // ===== Prediction / Recommendation (uses the same backend summary) =====
           Card(
             child: ListTile(
               leading: const Icon(Icons.lightbulb),
               title: const Text('Prediction / Recommendation'),
-              subtitle: Text('Current sentiment: • ${''}'),
+              subtitle: Text('Current sentiment: ${_sentSummary?.label ?? '…'}'),
             ),
           ),
+
           Padding(
             padding: const EdgeInsets.only(top: 8),
             child: Text(
-              'Sentiment (summary): ${widget.summary.sentiment}',
+              'Sentiment (summary): ${_sentSummary?.label ?? widget.summary.sentiment}',
               style: Theme.of(context).textTheme.bodySmall,
             ),
           ),
+
           const SizedBox(height: 16),
           FilledButton.icon(
             onPressed: () => Navigator.pop(context),
