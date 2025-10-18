@@ -1,3 +1,5 @@
+cd /Users/eric/StudioProjects/Stock_project
+
 cat > .gitignore <<'EOF'
 # ============== General ==============
 .DS_Store

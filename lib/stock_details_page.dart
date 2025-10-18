@@ -4,12 +4,15 @@ import 'package:flutter/foundation.dart'
 import 'package:flutter/material.dart';
 
 import 'models.dart';
-import 'services/alpha_vantage.dart'; // provides fetchStockQuote + LiveQuote
+import 'services/alpha_vantage.dart'; // fetchStockQuote + LiveQuote
 
 // Backend client + repo + social trends UI
 import 'services/api_client.dart';
 import 'services/market_repo.dart';
 import 'widgets/social_trends_card.dart';
+
+// NEW: company news page
+import 'company_news_page.dart';
 
 class StockDetailsPage extends StatefulWidget {
   final StockSummary summary;
@@ -68,7 +71,7 @@ class _StockDetailsPageState extends State<StockDetailsPage> {
         );
       });
     } catch (_) {
-      // Ignore—SocialTrendsCard will render its own state/errors.
+      // Ignore—SocialTrendsCard renders its own state/errors.
     }
   }
 
@@ -160,10 +163,30 @@ class _StockDetailsPageState extends State<StockDetailsPage> {
             child: ListTile(
               leading: const Icon(Icons.lightbulb),
               title: const Text('Prediction / Recommendation'),
-              subtitle: Text('Current sentiment: ${_sentSummary?.label ?? '…'}'),
+              subtitle:
+              Text('Current sentiment: ${_sentSummary?.label ?? '…'}'),
             ),
           ),
 
+          // ===== Company News shortcut =====
+          const SizedBox(height: 8),
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton.icon(
+              icon: const Icon(Icons.article),
+              label: const Text('Company News'),
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => CompanyNewsPage(symbol: symbol),
+                  ),
+                );
+              },
+            ),
+          ),
+
+          // Small footer text
           Padding(
             padding: const EdgeInsets.only(top: 8),
             child: Text(

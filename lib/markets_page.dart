@@ -1,7 +1,9 @@
 // lib/markets_page.dart
 import 'package:flutter/material.dart';
+
 import 'models.dart';
 import 'services/alpha_vantage.dart';
+import 'market_news_page.dart'; // NEW: open market-wide news
 
 typedef OpenSymbol = void Function(String symbol);
 
@@ -16,7 +18,7 @@ class MarketsPage extends StatefulWidget {
 class _MarketsPageState extends State<MarketsPage> {
   late Future<TopMovers> _future;
 
-  // Price floor options (in USD). Users can pick one.
+  /// Price floor options (USD). Users can pick one.
   static const List<double> _floors = [0, 10, 20, 50];
   double _selectedFloor = 10;
 
@@ -31,7 +33,7 @@ class _MarketsPageState extends State<MarketsPage> {
     await _future.catchError((_) {});
   }
 
-  // —— Helpers: sort & pick by % change only ——
+  // ---- Helpers: rank purely by % change ----
 
   // Gainers: sort by changePct descending (largest positive first)
   List<Mover> _rankGainers(List<Mover> xs) {
@@ -49,11 +51,10 @@ class _MarketsPageState extends State<MarketsPage> {
 
   // Filter by price floor and take top N
   List<Mover> _topNWithFloor(List<Mover> ranked, {required int n, required double floor}) {
-    final filtered = ranked.where((m) => m.price >= floor).take(n).toList();
-    return filtered;
+    return ranked.where((m) => m.price >= floor).take(n).toList();
   }
 
-  // —— UI widgets ——
+  // ---- UI bits ----
 
   Widget _tile(BuildContext context, Mover m) {
     final text = Theme.of(context).textTheme;
@@ -121,21 +122,28 @@ class _MarketsPageState extends State<MarketsPage> {
     );
   }
 
-  Widget _sectionHeader({
-    required String title,
-    required VoidCallback onRefresh,
-    required double selectedFloor,
-    required ValueChanged<double> onFloorChanged,
-  }) {
+  Widget _headerRow() {
     final text = Theme.of(context).textTheme;
 
     return Row(
       children: [
-        Expanded(child: Text(title, style: text.titleLarge)),
-        const SizedBox(width: 12),
+        Expanded(child: Text('Top 6 • Price Filter', style: text.titleLarge)),
+
+        // Quick link to market-wide news
+        IconButton(
+          tooltip: 'Market News',
+          icon: const Icon(Icons.article_outlined),
+          onPressed: () {
+            Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const MarketNewsPage()),
+            );
+          },
+        ),
+        const SizedBox(width: 4),
+
         // Price floor selector
         DropdownButton<double>(
-          value: selectedFloor,
+          value: _selectedFloor,
           onChanged: (v) {
             if (v == null) return;
             setState(() => _selectedFloor = v);
@@ -147,8 +155,10 @@ class _MarketsPageState extends State<MarketsPage> {
           ))
               .toList(),
         ),
+        const SizedBox(width: 4),
+
         IconButton(
-          onPressed: onRefresh,
+          onPressed: _refresh,
           icon: const Icon(Icons.refresh),
           tooltip: 'Refresh',
         ),
@@ -158,7 +168,7 @@ class _MarketsPageState extends State<MarketsPage> {
 
   @override
   Widget build(BuildContext context) {
-    final text   = Theme.of(context).textTheme;
+    final text = Theme.of(context).textTheme;
 
     return RefreshIndicator(
       onRefresh: _refresh,
@@ -168,32 +178,24 @@ class _MarketsPageState extends State<MarketsPage> {
         child: FutureBuilder<TopMovers>(
           future: _future,
           builder: (context, snap) {
+            // Loading
             if (snap.connectionState == ConnectionState.waiting) {
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _sectionHeader(
-                    title: 'Top 6 • Price Filter',
-                    onRefresh: _refresh,
-                    selectedFloor: _selectedFloor,
-                    onFloorChanged: (v) => setState(() => _selectedFloor = v),
-                  ),
+                  _headerRow(),
                   const SizedBox(height: 12),
                   const LinearProgressIndicator(),
                 ],
               );
             }
 
+            // Error
             if (snap.hasError) {
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _sectionHeader(
-                    title: 'Top 6 • Price Filter',
-                    onRefresh: _refresh,
-                    selectedFloor: _selectedFloor,
-                    onFloorChanged: (v) => setState(() => _selectedFloor = v),
-                  ),
+                  _headerRow(),
                   const SizedBox(height: 12),
                   Container(
                     width: double.infinity,
@@ -214,46 +216,37 @@ class _MarketsPageState extends State<MarketsPage> {
               );
             }
 
+            // Success
             final data = snap.data!;
-            // Rank purely by percent change.
             final rankedGainers   = _rankGainers(data.gainers);
             final rankedDecliners = _rankDecliners(data.losers);
 
-            // Apply chosen price floor and take top 6 in each category.
             final gainersTop   = _topNWithFloor(rankedGainers,   n: 6, floor: _selectedFloor);
             final declinersTop = _topNWithFloor(rankedDecliners, n: 6, floor: _selectedFloor);
 
             return Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _sectionHeader(
-                  title: 'Top 6 • Price Filter',
-                  onRefresh: _refresh,
-                  selectedFloor: _selectedFloor,
-                  onFloorChanged: (v) => setState(() => _selectedFloor = v),
-                ),
+                _headerRow(),
                 const SizedBox(height: 16),
 
                 // Gainers
-                Text(
-                  'Top 6 Gainers (by % change)',
-                  style: text.titleMedium,
-                ),
+                Text('Top 6 Gainers (by % change)', style: text.titleMedium),
                 const SizedBox(height: 12),
                 _grid(context, gainersTop),
 
                 const SizedBox(height: 24),
 
-                // Decliners (neutral term instead of "losers")
-                Text(
-                  'Top 6 Decliners (by % change)',
-                  style: text.titleMedium,
-                ),
+                // Decliners
+                Text('Top 6 Decliners (by % change)', style: text.titleMedium),
                 const SizedBox(height: 12),
                 _grid(context, declinersTop),
 
                 const SizedBox(height: 12),
-                Text('Source: Alpha Vantage TOP_GAINERS_LOSERS', style: text.bodySmall),
+                Text(
+                  'Source: Alpha Vantage TOP_GAINERS_LOSERS',
+                  style: text.bodySmall,
+                ),
               ],
             );
           },
