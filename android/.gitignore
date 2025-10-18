@@ -1,14 +1,85 @@
-gradle-wrapper.jar
-/.gradle
-/captures/
-/gradlew
-/gradlew.bat
-/local.properties
-GeneratedPluginRegistrant.java
-.cxx/
+# ============== General ==============
+.DS_Store
+Thumbs.db
+*.log
+*.tmp
+*.swp
+*.swo
+*.iml
 
-# Remember to never publicly share your keystore.
-# See https://flutter.dev/to/reference-keystore
-key.properties
+# Editors / IDE
+.idea/
+.vscode/
+
+# ============== Flutter / Dart ==============
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.melos_tool/
+.pub-cache/
+build/
+coverage/
+
+# Some projects commit .metadata; most apps can ignore it:
+.metadata
+
+# ============== Android ==============
+android/.gradle/
+android/.cxx/
+android/local.properties
+
+# Keystore & signing
+android/key.properties
 **/*.keystore
 **/*.jks
+
+# Build outputs
+android/app/profile/
+android/app/release/
+
+# Generated registrant
+**/GeneratedPluginRegistrant.java
+
+# IMPORTANT: keep Gradle wrapper files committed
+# (do NOT ignore these; they must stay in the repo)
+# gradle/wrapper/gradle-wrapper.jar
+# gradlew
+# gradlew.bat
+
+# ============== iOS ==============
+ios/Pods/
+ios/.symlinks/
+ios/Flutter/ephemeral/
+ios/Flutter/Flutter.framework
+ios/Flutter/Flutter.podspec
+ios/Flutter/Generated.xcconfig
+ios/Runner/GeneratedPluginRegistrant.*
+
+# ============== macOS ==============
+macos/Flutter/ephemeral/
+macos/Pods/
+macos/.symlinks/
+
+# ============== Windows ==============
+windows/flutter/ephemeral/
+
+# ============== Linux ==============
+linux/flutter/ephemeral/
+
+# ============== Web ==============
+# (usually nothing special beyond build/)
+
+# ============== Backend (keep private) ==============
+backend/**
+!backend/.env.example
+!backend/README.md
+!backend/OPENAPI.md
+
+# Secrets & venvs
+backend/.env
+backend/.venv/
+backend/__pycache__/
+backend/*.db
+backend/*.sqlite*
+backend/out/

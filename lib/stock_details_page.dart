@@ -1,11 +1,12 @@
 // lib/stock_details_page.dart
-import 'package:flutter/foundation.dart' show kIsWeb, defaultTargetPlatform, TargetPlatform;
+import 'package:flutter/foundation.dart'
+    show kIsWeb, defaultTargetPlatform, TargetPlatform;
 import 'package:flutter/material.dart';
 
 import 'models.dart';
-import 'services/alpha_vantage.dart';
+import 'services/alpha_vantage.dart'; // provides fetchStockQuote + LiveQuote
 
-// NEW: backend client + repo + social trends UI
+// Backend client + repo + social trends UI
 import 'services/api_client.dart';
 import 'services/market_repo.dart';
 import 'widgets/social_trends_card.dart';
@@ -22,36 +23,52 @@ class _StockDetailsPageState extends State<StockDetailsPage> {
   late Future<LiveQuote> _future;
   String? _error;
 
-  // NEW: repo + sentiment summary (from backend)
+  // Backend repo + sentiment summary
   late final MarketRepo _repo;
   SentimentSummary? _sentSummary;
 
   @override
   void initState() {
     super.initState();
-    // Live pricing (you already had this)
+
+    // Live pricing (AlphaVantage or your existing source)
     _future = fetchStockQuote(widget.summary.symbol);
 
-    // Backend base URL:
-    // - Android emulator must use 10.0.2.2
-    // - iOS simulator/Web/desktop can use 127.0.0.1
+    // Base URL: Android emulator requires 10.0.2.2; others can use localhost
     final baseUrl = (!kIsWeb && defaultTargetPlatform == TargetPlatform.android)
         ? 'http://10.0.2.2:8000'
         : 'http://127.0.0.1:8000';
 
     _repo = MarketRepo(ApiClient(baseUrl: baseUrl));
 
-    // Fetch sentiment summary once for the “Prediction / Recommendation” card
+    // Fetch sentiment once for the “Prediction / Recommendation” card
     _loadSentimentSummary();
   }
 
   Future<void> _loadSentimentSummary() async {
     try {
-      final (_, summary) = await _repo.sentiment(widget.summary.symbol);
+      // Repo returns a Dart record: (List<SentimentPoint>, String)
+      final (series, summaryText) =
+      await _repo.fetchSentiment(widget.summary.symbol);
+
       if (!mounted) return;
-      setState(() => _sentSummary = summary);
+
+      // Compute average score for your SentimentSummary(avg, label)
+      final avg = series.isEmpty
+          ? 0.0
+          : series
+          .map((e) => e.score.toDouble())
+          .reduce((a, b) => a + b) /
+          series.length;
+
+      setState(() {
+        _sentSummary = SentimentSummary(
+          avg: avg,
+          label: summaryText,
+        );
+      });
     } catch (_) {
-      // keep silent; SocialTrendsCard will still render its own data/errors
+      // Ignore—SocialTrendsCard will render its own state/errors.
     }
   }
 
@@ -75,16 +92,19 @@ class _StockDetailsPageState extends State<StockDetailsPage> {
                     title: const Text('Loading live price…'),
                     subtitle: const Text('Stock Pricing'),
                     trailing: const SizedBox(
-                      width: 18, height: 18,
+                      width: 18,
+                      height: 18,
                       child: CircularProgressIndicator(strokeWidth: 2),
                     ),
                   ),
                 );
               }
+
               if (snap.hasError) {
                 _error ??=
                 'Live price unavailable (${snap.error}). Showing cached/simulated.';
               }
+
               final live = snap.data;
               final price = live?.price ?? widget.summary.price;
               final changePct = live?.changePct ?? widget.summary.changePct;
@@ -100,7 +120,10 @@ class _StockDetailsPageState extends State<StockDetailsPage> {
                       subtitle: const Text('Stock Pricing'),
                       trailing: Text(
                         '${up ? '+' : ''}${changePct.toStringAsFixed(2)}%',
-                        style: TextStyle(color: color, fontWeight: FontWeight.w600),
+                        style: TextStyle(
+                          color: color,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                     ),
                   ),
@@ -132,7 +155,7 @@ class _StockDetailsPageState extends State<StockDetailsPage> {
 
           const SizedBox(height: 8),
 
-          // ===== Prediction / Recommendation (uses the same backend summary) =====
+          // ===== Prediction / Recommendation =====
           Card(
             child: ListTile(
               leading: const Icon(Icons.lightbulb),

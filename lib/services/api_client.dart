@@ -1,64 +1,89 @@
 // lib/services/api_client.dart
 import 'dart:convert';
+import 'dart:io' show Platform;
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:http/http.dart' as http;
 
 class ApiClient {
-  /// Base URL of your backend.
-  /// Use the Android emulator host alias by default.
   final String baseUrl;
-  const ApiClient({this.baseUrl = 'http://10.0.2.2:8000'});
+  final http.Client _http;
 
-  /// GET /summary?ticker=...
-  Future<Map<String, dynamic>> getSummary(String ticker) async {
-    final uri = Uri.parse('$baseUrl/summary')
-        .replace(queryParameters: {'ticker': ticker});
-    final res = await http.get(uri);
-    if (res.statusCode != 200) {
-      throw Exception('HTTP ${res.statusCode}: ${res.body}');
-    }
-    return jsonDecode(res.body) as Map<String, dynamic>;
+  ApiClient({String? baseUrl, http.Client? httpClient})
+      : baseUrl = baseUrl ?? _defaultBaseUrl(),
+        _http = httpClient ?? http.Client() {
+    // Debug: confirm which base URL the app is actually using.
+    // ignore: avoid_print
+    print('[ApiClient] baseUrl=$baseUrl');
   }
 
-  /// GET /symbols/{ticker}/exists
-  Future<bool> symbolExists(String ticker) async {
-    final uri = Uri.parse('$baseUrl/symbols/$ticker/exists');
-    final res = await http.get(uri);
-    if (res.statusCode != 200) {
-      throw Exception('HTTP ${res.statusCode}: ${res.body}');
-    }
-    final data = jsonDecode(res.body) as Map<String, dynamic>;
-    return (data['exists'] as bool?) ?? false;
+  static String _defaultBaseUrl() {
+    if (kIsWeb) return 'http://localhost:8000';
+    if (Platform.isAndroid) return 'http://10.0.2.2:8000';
+    return 'http://127.0.0.1:8000';
   }
 
-  /// GET /reddit?ticker=...&days=14&limit=50
-  Future<List<dynamic>> getReddit(String ticker,
-      {int days = 14, int limit = 50}) async {
-    final uri = Uri.parse('$baseUrl/reddit').replace(queryParameters: {
+  Future<List<dynamic>> getJsonList(String path, {Map<String, String>? query}) async {
+    final uri = Uri.parse('$baseUrl$path').replace(queryParameters: query);
+    final resp = await _http.get(uri);
+    if (resp.statusCode >= 200 && resp.statusCode < 300) {
+      final decoded = jsonDecode(resp.body);
+      if (decoded is List) return decoded;
+      throw StateError('Expected a JSON list from $path; got ${decoded.runtimeType}');
+    }
+    throw HttpException('GET $uri failed: ${resp.statusCode} ${resp.reasonPhrase} – ${resp.body}');
+  }
+
+  Future<Map<String, dynamic>> getJsonMap(String path, {Map<String, String>? query}) async {
+    final uri = Uri.parse('$baseUrl$path').replace(queryParameters: query);
+    final resp = await _http.get(uri);
+    if (resp.statusCode >= 200 && resp.statusCode < 300) {
+      final decoded = jsonDecode(resp.body);
+      if (decoded is Map<String, dynamic>) return decoded;
+      throw StateError('Expected a JSON object from $path; got ${decoded.runtimeType}');
+    }
+    throw HttpException('GET $uri failed: ${resp.statusCode} ${resp.reasonPhrase} – ${resp.body}');
+  }
+
+  // ---------- Backend endpoints ----------
+  Future<List<dynamic>> fetchReddit({
+    required String ticker,
+    int days = 14,
+    int limit = 50,
+  }) {
+    return getJsonList('/reddit', query: {
       'ticker': ticker,
       'days': '$days',
       'limit': '$limit',
     });
-    final res = await http.get(uri);
-    if (res.statusCode != 200) {
-      throw Exception('HTTP ${res.statusCode}: ${res.body}');
-    }
-    final parsed = jsonDecode(res.body);
-    if (parsed is List) return parsed;
-    throw Exception('Unexpected /reddit payload: ${res.body}');
   }
 
-  /// GET /sentiment?ticker=...&days=14&limit=50
-  Future<Map<String, dynamic>> getSentiment(String ticker,
-      {int days = 14, int limit = 50}) async {
-    final uri = Uri.parse('$baseUrl/sentiment').replace(queryParameters: {
+  Future<Map<String, dynamic>> fetchSentiment({
+    required String ticker,
+    int days = 14,
+    int limit = 50,
+  }) {
+    return getJsonMap('/sentiment', query: {
       'ticker': ticker,
       'days': '$days',
       'limit': '$limit',
     });
-    final res = await http.get(uri);
-    if (res.statusCode != 200) {
-      throw Exception('HTTP ${res.statusCode}: ${res.body}');
-    }
-    return jsonDecode(res.body) as Map<String, dynamic>;
   }
+
+  // --- Summary: support both path and query styles ---
+  Future<Map<String, dynamic>> fetchSummaryPath(String symbol) {
+    // e.g., GET /summary/NVDA
+    return getJsonMap('/summary/$symbol');
+  }
+
+  Future<Map<String, dynamic>> fetchSummaryQuery({required String ticker}) {
+    // e.g., GET /summary?ticker=NVDA
+    return getJsonMap('/summary', query: {'ticker': ticker});
+  }
+}
+
+class HttpException implements Exception {
+  final String message;
+  HttpException(this.message);
+  @override
+  String toString() => message;
 }

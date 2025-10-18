@@ -1,10 +1,15 @@
 // lib/home_page.dart
 import 'package:flutter/material.dart';
-import 'services/yahoo_service.dart';
+import 'package:flutter/foundation.dart' show kIsWeb, defaultTargetPlatform, TargetPlatform;
+
 import 'models.dart';
 import 'stock_details_page.dart';
 import 'markets_page.dart';
 import 'account_profile_page.dart';
+
+// NEW: backend client + repo
+import 'services/api_client.dart';
+import 'services/market_repo.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -18,21 +23,37 @@ class _HomePageState extends State<HomePage> {
   bool _loading = false;
   String? _error;
 
+  late final ApiClient _api;
+  late final MarketRepo _repo;
+
+  @override
+  void initState() {
+    super.initState();
+
+    // Base URL: Android emulator requires 10.0.2.2; others can use localhost
+    final baseUrl = (!kIsWeb && defaultTargetPlatform == TargetPlatform.android)
+        ? 'http://10.0.2.2:8000'
+        : 'http://127.0.0.1:8000';
+
+    _api = ApiClient(baseUrl: baseUrl);
+    _repo = MarketRepo(_api);
+  }
+
   @override
   void dispose() {
     _search.dispose();
     super.dispose();
   }
 
-  /// fetch summary from your Python backend (via YahooService)
-  Future<StockSummary> _fetchSummary(String symbol) async {
-    final s = await YahooService.getSummary(symbol);
-    return StockSummary(
-      symbol: s.symbol,
-      price: s.price,
-      changePct: s.changePct,
-      sentiment: s.sentiment, // default "Neutral" in YahooService
-    );
+  /// Backend check: /symbols/{symbol}/exists -> {"symbol": "...", "exists": true/false}
+  Future<bool> _symbolExists(String symbolUpper) async {
+    final j = await _api.getJsonMap('/symbols/$symbolUpper/exists');
+    return (j['exists'] == true);
+  }
+
+  /// Fetch summary via our backend (PATH style /summary/{SYMBOL})
+  Future<StockSummary> _fetchSummary(String symbolUpper) async {
+    return _repo.summary(symbolUpper);
   }
 
   Future<void> _onSearch() async {
@@ -48,11 +69,13 @@ class _HomePageState extends State<HomePage> {
 
     final symbolUpper = raw.toUpperCase();
     try {
-      final exists = await YahooService.symbolExists(symbolUpper);
+      // Check existence first (nicer UX than letting details page fail later)
+      final exists = await _symbolExists(symbolUpper);
       if (!exists) {
         setState(() => _error = 'This stock does not exist');
         return;
       }
+
       final summary = await _fetchSummary(symbolUpper);
       if (!mounted) return;
       Navigator.of(context).push(
@@ -145,6 +168,8 @@ class _HomePageState extends State<HomePage> {
   Widget build(BuildContext context) {
     final pages = <Widget>[
       _homeTab(),
+      // Keeping Markets tab behavior as-is. If you want real data there too,
+      // we can hook it to _repo.summary on tap next.
       MarketsPage(onOpenSymbol: (symbol) {
         Navigator.of(context).push(
           MaterialPageRoute(
