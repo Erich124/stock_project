@@ -37,12 +37,13 @@ class _StockDetailsPageState extends State<StockDetailsPage> {
     // Live pricing (AlphaVantage or your existing source)
     _future = fetchStockQuote(widget.summary.symbol);
 
-    // Base URL: Android emulator requires 10.0.2.2; others can use localhost
-    final baseUrl = (!kIsWeb && defaultTargetPlatform == TargetPlatform.android)
-        ? 'http://10.0.2.2:8000'
-        : 'http://127.0.0.1:8000';
-
-    _repo = MarketRepo(ApiClient(baseUrl: baseUrl));
+    // Use smart ApiClient base URL (Android emulator => 10.0.2.2)
+    // If you want to force it, you can still override via baseUrl:
+    // final baseUrl = (!kIsWeb && defaultTargetPlatform == TargetPlatform.android)
+    //     ? 'http://10.0.2.2:8000'
+    //     : 'http://127.0.0.1:8000';
+    // _repo = MarketRepo(ApiClient(baseUrl: baseUrl));
+    _repo = MarketRepo(ApiClient());
 
     // Fetch sentiment once for the “Prediction / Recommendation” card
     _loadSentimentSummary();

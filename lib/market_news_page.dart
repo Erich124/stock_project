@@ -1,7 +1,10 @@
 // lib/market_news_page.dart
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
-import 'services/news_service.dart';
+import 'news/article_detail_page.dart';
+import 'services/news_service.dart';            // For NewsItem
+import 'services/trending_service.dart';
+import 'widgets/trending_chips.dart';
+import 'models.dart';                           // For TrendingKeyword only
 
 class MarketNewsPage extends StatefulWidget {
   const MarketNewsPage({super.key});
@@ -15,6 +18,12 @@ class _MarketNewsPageState extends State<MarketNewsPage> {
   String? _error;
   List<NewsItem> _items = const [];
   final _search = TextEditingController();
+
+  // Trending state
+  bool _loadingTrending = false;
+  String? _trendingError;
+  List<TrendingKeyword> _trending = const [];
+  String? _selectedKeyword; // null = All
 
   @override
   void initState() {
@@ -32,25 +41,56 @@ class _MarketNewsPageState extends State<MarketNewsPage> {
     setState(() { _loading = true; _error = null; });
     try {
       final items = await NewsService.fetchMarketNews(limit: 50);
-      setState(() { _items = items; _loading = false; });
+      setState(() {
+        _items = items;
+        _loading = false;
+      });
+      _loadTrending(items); // kick off trending after headlines load
     } catch (e) {
       setState(() { _error = '$e'; _loading = false; });
     }
   }
 
-  Future<void> _open(String url) async {
-    final uri = Uri.tryParse(url);
-    if (uri != null && await canLaunchUrl(uri)) {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
+  Future<void> _loadTrending(List<NewsItem> headlines) async {
+    setState(() { _loadingTrending = true; _trendingError = null; });
+    try {
+      final list = await TrendingService.fetchTrendingKeywords(
+        headlines,
+        days: 14,
+        limit: 20,
+        includeReddit: false, // turn true if you want Reddit titles included
+      );
+      setState(() { _trending = list; });
+    } catch (e) {
+      setState(() { _trendingError = '$e'; });
+    } finally {
+      setState(() { _loadingTrending = false; });
     }
+  }
+
+  void _openDetail(NewsItem item) {
+    // Pass the NewsItem directly to ArticleDetailPage (which now expects NewsItem)
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => ArticleDetailPage(article: item)),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final q = _search.text.trim().toLowerCase();
-    final list = q.isEmpty
+
+    // Search filter
+    var list = q.isEmpty
         ? _items
-        : _items.where((n) => n.title.toLowerCase().contains(q) || n.source.toLowerCase().contains(q)).toList();
+        : _items.where((n) =>
+    n.title.toLowerCase().contains(q) ||
+        n.source.toLowerCase().contains(q)).toList();
+
+    // Keyword filter (from trending chips)
+    if (_selectedKeyword != null && _selectedKeyword!.isNotEmpty) {
+      final k = _selectedKeyword!.toLowerCase();
+      list = list.where((n) => n.title.toLowerCase().contains(k)).toList();
+    }
 
     return Scaffold(
       appBar: AppBar(
@@ -61,6 +101,7 @@ class _MarketNewsPageState extends State<MarketNewsPage> {
       ),
       body: Column(
         children: [
+          // Search box
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
             child: TextField(
@@ -74,7 +115,32 @@ class _MarketNewsPageState extends State<MarketNewsPage> {
               onChanged: (_) => setState(() {}),
             ),
           ),
+
+          // Trending chips (load state + error + chips)
+          if (_loadingTrending) const LinearProgressIndicator(minHeight: 2),
+          if (_trendingError != null)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: Row(
+                children: [
+                  const Icon(Icons.error_outline, color: Colors.red),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text('Trending error: $_trendingError',
+                        style: const TextStyle(color: Colors.red)),
+                  ),
+                ],
+              ),
+            ),
+          if (_trending.isNotEmpty)
+            TrendingChips(
+              keywords: _trending,
+              selected: _selectedKeyword,
+              onSelect: (k) => setState(() => _selectedKeyword = k),
+            ),
+
           if (_loading) const LinearProgressIndicator(),
+
           if (_error != null)
             Padding(
               padding: const EdgeInsets.all(16),
@@ -84,6 +150,8 @@ class _MarketNewsPageState extends State<MarketNewsPage> {
                 Expanded(child: Text(_error!, style: const TextStyle(color: Colors.red))),
               ]),
             ),
+
+          // Headlines list
           Expanded(
             child: ListView.separated(
               itemCount: list.length,
@@ -91,11 +159,18 @@ class _MarketNewsPageState extends State<MarketNewsPage> {
               itemBuilder: (_, i) {
                 final n = list[i];
                 final when = n.pubDate?.toLocal().toString().split('.').first ?? '';
-                return ListTile(
-                  title: Text(n.title),
-                  subtitle: Text([n.source, when].where((s) => s.isNotEmpty).join(' • ')),
-                  trailing: const Icon(Icons.open_in_new),
-                  onTap: () => _open(n.link),
+                return InkWell(
+                  onTap: () => _openDetail(n),
+                  child: ListTile(
+                    title: Text(
+                      n.title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    subtitle: Text([n.source, when].where((s) => s.isNotEmpty).join(' • ')),
+                    trailing: const Icon(Icons.open_in_new),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  ),
                 );
               },
             ),

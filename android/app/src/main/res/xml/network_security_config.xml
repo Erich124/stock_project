@@ -1,6 +1,25 @@
 <?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
+    <!-- Default: disallow cleartext unless explicitly allowed below -->
+    <base-config cleartextTrafficPermitted="false" />
+
+    <!-- Android emulator -> host machine -->
     <domain-config cleartextTrafficPermitted="true">
         <domain includeSubdomains="false">10.0.2.2</domain>
     </domain-config>
+
+    <!-- Localhost variants (handy for other dev targets/tools) -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">localhost</domain>
+        <domain includeSubdomains="false">127.0.0.1</domain>
+    </domain-config>
+
+    <!-- (Optional) If you test on a real phone over Wi-Fi using your Mac’s LAN IP,
+         duplicate this block and replace the IP below with your Mac’s actual LAN IP,
+         e.g. 192.168.1.23 -->
+    <!--
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">192.168.1.23</domain>
+    </domain-config>
+    -->
 </network-security-config>
