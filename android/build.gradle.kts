@@ -1,3 +1,13 @@
+// Do NOT pin plugin versions here; Flutter manages them.
+
+buildscript {
+    repositories {
+        google()
+        mavenCentral()
+    }
+    // No classpath deps here; versions are managed by Flutter via settings.gradle
+}
+
 allprojects {
     repositories {
         google()
@@ -5,15 +15,14 @@ allprojects {
     }
 }
 
-val newBuildDir: Directory = rootProject.layout.buildDirectory.dir("../../build").get()
-rootProject.layout.buildDirectory.value(newBuildDir)
+// Put all Android build output under the workspace /build
+val newBuildDir = rootProject.layout.buildDirectory.dir("../../build").get()
+rootProject.layout.buildDirectory.set(newBuildDir)
 
 subprojects {
-    val newSubprojectBuildDir: Directory = newBuildDir.dir(project.name)
-    project.layout.buildDirectory.value(newSubprojectBuildDir)
-}
-subprojects {
-    project.evaluationDependsOn(":app")
+    val newSubprojectBuildDir = newBuildDir.dir(project.name)
+    layout.buildDirectory.set(newSubprojectBuildDir)
+    evaluationDependsOn(":app")
 }
 
 tasks.register<Delete>("clean") {

@@ -1,11 +1,12 @@
-// lib/home_page.dart
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb, defaultTargetPlatform, TargetPlatform;
+import 'package:firebase_auth/firebase_auth.dart';
 
 import 'models.dart';
 import 'stock_details_page.dart';
 import 'markets_page.dart';
 import 'account_profile_page.dart';
+import 'login_page.dart'; // for redirect after logout
 
 // NEW: backend client + repo
 import 'services/api_client.dart';
@@ -29,12 +30,9 @@ class _HomePageState extends State<HomePage> {
   @override
   void initState() {
     super.initState();
-
-    // Base URL: Android emulator requires 10.0.2.2; others can use localhost
     final baseUrl = (!kIsWeb && defaultTargetPlatform == TargetPlatform.android)
         ? 'http://10.0.2.2:8000'
         : 'http://127.0.0.1:8000';
-
     _api = ApiClient(baseUrl: baseUrl);
     _repo = MarketRepo(_api);
   }
@@ -45,13 +43,11 @@ class _HomePageState extends State<HomePage> {
     super.dispose();
   }
 
-  /// Backend check: /symbols/{symbol}/exists -> {"symbol": "...", "exists": true/false}
   Future<bool> _symbolExists(String symbolUpper) async {
     final j = await _api.getJsonMap('/symbols/$symbolUpper/exists');
     return (j['exists'] == true);
   }
 
-  /// Fetch summary via our backend (PATH style /summary/{SYMBOL})
   Future<StockSummary> _fetchSummary(String symbolUpper) async {
     return _repo.summary(symbolUpper);
   }
@@ -69,7 +65,6 @@ class _HomePageState extends State<HomePage> {
 
     final symbolUpper = raw.toUpperCase();
     try {
-      // Check existence first (nicer UX than letting details page fail later)
       final exists = await _symbolExists(symbolUpper);
       if (!exists) {
         setState(() => _error = 'This stock does not exist');
@@ -164,12 +159,47 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
+  Widget _profileTab() {
+    final user = FirebaseAuth.instance.currentUser;
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24.0),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.person, size: 80, color: Colors.deepPurple),
+            const SizedBox(height: 16),
+            Text(
+              user != null
+                  ? 'Logged in as: ${user.email}'
+                  : 'No user signed in',
+              style: const TextStyle(fontSize: 18),
+            ),
+            const SizedBox(height: 24),
+            FilledButton.icon(
+              icon: const Icon(Icons.logout),
+              label: const Text('Sign Out'),
+              onPressed: () async {
+                await FirebaseAuth.instance.signOut();
+                if (context.mounted) {
+                  Navigator.pushAndRemoveUntil(
+                    context,
+                    MaterialPageRoute(builder: (_) => const LoginPage()),
+                        (route) => false,
+                  );
+                }
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final pages = <Widget>[
       _homeTab(),
-      // Keeping Markets tab behavior as-is. If you want real data there too,
-      // we can hook it to _repo.summary on tap next.
       MarketsPage(onOpenSymbol: (symbol) {
         Navigator.of(context).push(
           MaterialPageRoute(
@@ -184,7 +214,7 @@ class _HomePageState extends State<HomePage> {
           ),
         );
       }),
-      const AccountProfilePage(),
+      _profileTab(),
     ];
 
     return Scaffold(

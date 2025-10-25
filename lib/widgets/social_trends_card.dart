@@ -22,7 +22,7 @@ class SocialTrendsCard extends StatefulWidget {
 
 class _SocialTrendsCardState extends State<SocialTrendsCard> {
   DateTime? _lastUpdated;
-  static const int _maxPosts = 6; // how many posts shown in the card
+  static const int _maxPosts = 6;
 
   bool _loading = true;
   String? _error;
@@ -230,8 +230,10 @@ class _SocialTrendsCardState extends State<SocialTrendsCard> {
                 interval: yStep,
                 getTitlesWidget: (v, meta) {
                   // show compact 1-decimal labels
-                  return Text(v.toStringAsFixed(1),
-                      style: const TextStyle(fontSize: 10));
+                  return Text(
+                    v.toStringAsFixed(1),
+                    style: const TextStyle(fontSize: 10),
+                  );
                 },
               ),
             ),
@@ -255,8 +257,10 @@ class _SocialTrendsCardState extends State<SocialTrendsCard> {
                 reservedSize: 34, // key: guarantees space for tick labels
                 getTitlesWidget: (v, meta) => Padding(
                   padding: const EdgeInsets.only(top: 2),
-                  child:
-                  Text(xLabel(v), style: const TextStyle(fontSize: 10)),
+                  child: Text(
+                    xLabel(v),
+                    style: const TextStyle(fontSize: 10),
+                  ),
                 ),
                 interval: (parsed.length <= 7)
                     ? 1
@@ -308,11 +312,33 @@ class _SocialTrendsCardState extends State<SocialTrendsCard> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Header row: title + refresh (keeps layout compact)
+                // Header: left side becomes multi-line if needed, refresh pinned right
                 Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
                     Expanded(
-                      child: Text('Social Trends', style: Theme.of(context).textTheme.titleLarge),
+                      child: Wrap(
+                        alignment: WrapAlignment.start,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        spacing: 8,
+                        runSpacing: 2,
+                        children: [
+                          Text('Social Trends',
+                              style: Theme.of(context).textTheme.titleLarge),
+                          if (_lastUpdated != null)
+                            Text(
+                              _formatUpdated(_lastUpdated!),
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodySmall
+                                  ?.copyWith(color: Colors.grey),
+                            ),
+                          const Text(
+                            'Last 14 days',
+                            style: TextStyle(fontSize: 12, color: Colors.grey),
+                          ),
+                        ],
+                      ),
                     ),
                     IconButton(
                       tooltip: 'Refresh',
@@ -321,22 +347,7 @@ class _SocialTrendsCardState extends State<SocialTrendsCard> {
                     ),
                   ],
                 ),
-
-                // Subheader: updated + fixed range (separate row prevents overflow)
-                Padding(
-                  padding: const EdgeInsets.only(top: 4.0, bottom: 6.0),
-                  child: Row(
-                    children: [
-                      if (_lastUpdated != null)
-                        Text(
-                          _formatUpdated(_lastUpdated!),
-                          style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.grey),
-                        ),
-                      if (_lastUpdated != null) const SizedBox(width: 10),
-                      Text('Last 14 days', style: Theme.of(context).textTheme.bodySmall),
-                    ],
-                  ),
-                ),
+                const SizedBox(height: 6),
 
                 if (_loading && _posts.isEmpty && _series.isEmpty) ...[
                   const LinearProgressIndicator(),
@@ -348,20 +359,30 @@ class _SocialTrendsCardState extends State<SocialTrendsCard> {
                     children: [
                       const Icon(Icons.error_outline, color: Colors.red),
                       const SizedBox(width: 8),
-                      Expanded(child: Text(_error!, style: const TextStyle(color: Colors.red))),
+                      Expanded(
+                        child: Text(
+                          _error!,
+                          style: const TextStyle(color: Colors.red),
+                        ),
+                      ),
                     ],
                   ),
                   const SizedBox(height: 8),
                 ],
 
                 // Summary
-                Text(_summary.isEmpty ? 'Neutral' : _summary, style: Theme.of(context).textTheme.titleMedium),
+                Text(
+                  _summary.isEmpty ? 'Neutral' : _summary,
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
                 const SizedBox(height: 6),
 
                 // Chips: Avg + Posts
                 Builder(builder: (_) {
-                  final avg = _avgScore(_filterSeriesByWindow(_series, _windowDays));
-                  final color = avg > 0.05 ? Colors.green : (avg < -0.05 ? Colors.red : Colors.grey);
+                  final avg = _avgScore(windowed);
+                  final color = avg > 0.05
+                      ? Colors.green
+                      : (avg < -0.05 ? Colors.red : Colors.grey);
                   final sign = avg >= 0 ? '+' : '';
                   return Wrap(
                     spacing: 8,
@@ -399,22 +420,32 @@ class _SocialTrendsCardState extends State<SocialTrendsCard> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text(p.title, style: Theme.of(context).textTheme.bodyMedium),
+                                Text(p.title,
+                                    style:
+                                    Theme.of(context).textTheme.bodyMedium),
                                 const SizedBox(height: 2),
                                 Wrap(
-                                  crossAxisAlignment: WrapCrossAlignment.center,
+                                  crossAxisAlignment:
+                                  WrapCrossAlignment.center,
                                   spacing: 6,
                                   children: [
                                     GestureDetector(
                                       onTap: () => _openHostSearch(host),
                                       child: Text(
                                         host,
-                                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                          decoration: TextDecoration.underline,
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .bodySmall
+                                            ?.copyWith(
+                                          decoration:
+                                          TextDecoration.underline,
                                         ),
                                       ),
                                     ),
-                                    Text('•  $when', style: Theme.of(context).textTheme.bodySmall),
+                                    Text('•  $when',
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .bodySmall),
                                   ],
                                 ),
                               ],

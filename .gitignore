@@ -1,4 +1,6 @@
-# Secrets
+# =========================
+# Secrets / Credentials
+# =========================
 *.env
 .env
 backend/.env
@@ -6,30 +8,74 @@ android/key.properties
 *.jks
 *.keystore
 
-# Flutter/Android/iOS build
+# (Optional) Firebase configs are generally safe to commit for apps.
+# If you prefer to keep them private, uncomment these lines:
+# android/app/google-services.json
+# ios/Runner/GoogleService-Info.plist
+
+# =========================
+# Flutter / Dart
+# =========================
+.dart_tool/
+.packages
+.pub-cache/
 build/
+**/GeneratedPluginRegistrant.*
 .flutter-plugins
 .flutter-plugins-dependencies
-.packages
-.dart_tool/
-pubspec.lock
 
+# Keep pubspec.lock for apps (recommended). Comment out next line if you insist on ignoring:
+# pubspec.lock
+
+# =========================
+# Android / Gradle
+# =========================
 android/.gradle/
 android/local.properties
+**/captures/
 android/app/build/
+.cxx/
 
+# =========================
+# iOS / Xcode
+# =========================
 ios/Pods/
-ios/Podfile.lock
+ios/.symlinks/
+ios/Flutter/Flutter.framework
+ios/Flutter/Flutter.podspec
+ios/Flutter/App.framework
+ios/ServiceDefinitions.json
+ios/Runner.xcworkspace/
+ios/DerivedData/
 ios/Runner/GeneratedPluginRegistrant.*
 
-# Python
+# =========================
+# macOS / Windows / Linux (Flutter desktop)
+# =========================
+macos/Flutter/ephemeral/
+macos/Pods/
+macos/Runner/GeneratedPluginRegistrant.*
+windows/flutter/ephemeral/
+linux/flutter/ephemeral/
+
+# =========================
+# IDE / Editor
+# =========================
+.vscode/
+.idea/
+*.iml
+
+# =========================
+# Python backend
+# =========================
 backend/.venv/
 backend/__pycache__/
 __pycache__/
 *.pyc
-
-# App artifacts / scratch
 backend/out/
-*.iml
+
+# =========================
+# Logs / OS junk / misc
+# =========================
 *.log
 .DS_Store
