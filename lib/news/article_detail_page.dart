@@ -8,9 +8,10 @@ import 'package:webview_flutter_android/webview_flutter_android.dart';
 import 'package:webview_flutter_wkwebview/webview_flutter_wkwebview.dart';
 
 import '../services/news_service.dart'; // For NewsItem class
+import '../services/history_service.dart'; // <-- add logging
 
 class ArticleDetailPage extends StatefulWidget {
-  final NewsItem article; // ✅ changed from NewsArticle to NewsItem
+  final NewsItem article; // NewsItem
   const ArticleDetailPage({super.key, required this.article});
 
   @override
@@ -25,7 +26,14 @@ class _ArticleDetailPageState extends State<ArticleDetailPage> {
   void initState() {
     super.initState();
 
-    // ✅ Correct WebView setup
+    // Log the article view as soon as the page opens
+    HistoryService.instance.logView(
+      type: 'article',
+      id: widget.article.link,     // use URL for stable id
+      title: widget.article.title,
+    );
+
+    // Correct WebView setup
     if (Platform.isAndroid) {
       WebViewPlatform.instance = AndroidWebViewPlatform();
     } else if (Platform.isIOS) {

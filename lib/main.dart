@@ -1,14 +1,17 @@
 // lib/main.dart
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+
 import 'firebase_options.dart';
 import 'login_page.dart';
 import 'home_page.dart';
+import 'pages/history_page.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Optional: forward framework errors to the zone so they don't crash silently.
+  // Surface framework errors instead of silently swallowing them.
   FlutterError.onError = (FlutterErrorDetails details) {
     FlutterError.presentError(details);
   };
@@ -18,7 +21,6 @@ Future<void> main() async {
       options: DefaultFirebaseOptions.currentPlatform,
     );
   } catch (e, st) {
-    // If init fails, show a readable error UI instead of a hard crash.
     runApp(_InitErrorApp(error: e, stack: st));
     return;
   }
@@ -38,10 +40,39 @@ class MyApp extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
         useMaterial3: true,
       ),
-      home: const LoginPage(), // Start at your login screen
+
+      // Show LoginPage if signed out; HomePage if signed in.
+      home: StreamBuilder<User?>(
+        stream: FirebaseAuth.instance.authStateChanges(),
+        builder: (context, snap) {
+          if (snap.connectionState == ConnectionState.waiting) {
+            return const _Splash();
+          }
+          final user = snap.data;
+          if (user == null) {
+            return const LoginPage();
+          }
+          return const HomePage();
+        },
+      ),
+
+      // App routes
       routes: {
         '/home': (_) => const HomePage(),
+        '/history': (_) => const HistoryPage(),
       },
+    );
+  }
+}
+
+/// Minimal splash while Firebase/Auth resolves.
+class _Splash extends StatelessWidget {
+  const _Splash();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Scaffold(
+      body: Center(child: CircularProgressIndicator()),
     );
   }
 }

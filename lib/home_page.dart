@@ -1,3 +1,4 @@
+// lib/home_page.dart
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb, defaultTargetPlatform, TargetPlatform;
 import 'package:firebase_auth/firebase_auth.dart';
@@ -11,6 +12,9 @@ import 'login_page.dart'; // for redirect after logout
 // NEW: backend client + repo
 import 'services/api_client.dart';
 import 'services/market_repo.dart';
+
+// NEW: history logging
+import 'services/history_service.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -65,6 +69,13 @@ class _HomePageState extends State<HomePage> {
 
     final symbolUpper = raw.toUpperCase();
     try {
+      // Log the user's search (Step 3 hook)
+      await HistoryService.instance.logSearch(
+        query: raw,
+        source: 'HomeSearch',
+        symbolHint: symbolUpper,
+      );
+
       final exists = await _symbolExists(symbolUpper);
       if (!exists) {
         setState(() => _error = 'This stock does not exist');
@@ -92,7 +103,7 @@ class _HomePageState extends State<HomePage> {
           TextField(
             controller: _search,
             textInputAction: TextInputAction.search,
-            onSubmitted: (_) => _onSearch(),
+            onSubmitted: (_) => _onSearch(), // logs search inside
             decoration: InputDecoration(
               labelText: 'Search by stock names',
               hintText: 'e.g. AAPL, NVDA, AMZN…',
@@ -119,7 +130,7 @@ class _HomePageState extends State<HomePage> {
             child: FilledButton.icon(
               icon: const Icon(Icons.arrow_forward),
               label: const Text('Go'),
-              onPressed: _loading ? null : _onSearch,
+              onPressed: _loading ? null : _onSearch, // logs search inside
             ),
           ),
           if (_error != null) ...[
@@ -218,7 +229,17 @@ class _HomePageState extends State<HomePage> {
     ];
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Stock Scout')),
+      appBar: AppBar(
+        title: const Text('Stock Scout'),
+        actions: [
+          // History button (opens the minimal History UI at /history)
+          IconButton(
+            tooltip: 'History',
+            icon: const Icon(Icons.history),
+            onPressed: () => Navigator.of(context).pushNamed('/history'),
+          ),
+        ],
+      ),
       body: IndexedStack(index: _tabIndex, children: pages),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _tabIndex,

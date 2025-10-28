@@ -2,7 +2,8 @@
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-import 'services/market_repo.dart'; // RedditPost, SentimentPoint, MarketRepo
+import 'services/history_service.dart';       // <-- add logging
+import 'services/market_repo.dart';           // RedditPost, SentimentPoint, MarketRepo
 
 class SocialTrendsPage extends StatefulWidget {
   final String symbol;
@@ -36,9 +37,17 @@ class _SocialTrendsPageState extends State<SocialTrendsPage> {
   String _sort = 'Newest';
   String _hostFilter = 'All'; // All / reddit.com / twitter.com / etc.
 
+  List<String> _hostOptions = const ['All'];
+
   @override
   void initState() {
     super.initState();
+    // Optional: log landing on the Social page for this symbol
+    HistoryService.instance.logView(
+      type: 'page',
+      id: 'social_trends:${widget.symbol}',
+      title: 'Social Trends ${widget.symbol}',
+    );
     _load();
   }
 
@@ -93,7 +102,8 @@ class _SocialTrendsPageState extends State<SocialTrendsPage> {
         arr.sort((a, b) => _ts(a.createdUtc).compareTo(_ts(b.createdUtc)));
         break;
       case 'Score':
-      // if you have score on the post object, you can sort by it; otherwise fallback to newest
+      // if you have score on the post object, you can sort by it;
+      // otherwise fallback to newest
         arr.sort((a, b) => _ts(b.createdUtc).compareTo(_ts(a.createdUtc)));
         break;
       case 'Newest':
@@ -124,10 +134,8 @@ class _SocialTrendsPageState extends State<SocialTrendsPage> {
         _viewPosts = _applyFilters();
         _visible = _pageSize; // reset pagination
         _loading = false;
+        _hostOptions = ['All', ...sortedHosts];
       });
-
-      // If you want the host filter list shown in a dropdown, keep _hostFilter options dynamic.
-      _hostOptions = ['All', ...sortedHosts];
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -137,11 +145,19 @@ class _SocialTrendsPageState extends State<SocialTrendsPage> {
     }
   }
 
-  List<String> _hostOptions = const ['All'];
-
-  Future<void> _open(String url) async {
+  // When opening a post: log then launch
+  Future<void> _open(String url, String title) async {
     final uri = Uri.tryParse(url);
     if (uri == null) return;
+
+    // Log the view
+    await HistoryService.instance.logView(
+      type: 'reddit_post',
+      id: uri.toString(),
+      title: title,
+    );
+
+    // Launch externally
     if (await canLaunchUrl(uri)) {
       await launchUrl(uri, mode: LaunchMode.externalApplication);
     }
@@ -194,7 +210,7 @@ class _SocialTrendsPageState extends State<SocialTrendsPage> {
               spacing: 12,
               runSpacing: 8,
               children: [
-                // search
+                // search (local filter; not a network search, so no history log here)
                 SizedBox(
                   width: 260,
                   child: TextField(
@@ -302,7 +318,7 @@ class _SocialTrendsPageState extends State<SocialTrendsPage> {
                   title: Text(p.title),
                   subtitle: Text([host, when].where((x) => x.isNotEmpty).join(' • ')),
                   trailing: const Icon(Icons.open_in_new),
-                  onTap: () => _open(p.url),
+                  onTap: () => _open(p.url, p.title), // <-- log then open
                 );
               },
             ),

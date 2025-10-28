@@ -2,6 +2,7 @@
 import 'package:flutter/foundation.dart'
     show kIsWeb, defaultTargetPlatform, TargetPlatform;
 import 'package:flutter/material.dart';
+import 'services/history_service.dart';
 
 import 'models.dart';
 import 'services/alpha_vantage.dart'; // fetchStockQuote + LiveQuote
@@ -33,6 +34,13 @@ class _StockDetailsPageState extends State<StockDetailsPage> {
   @override
   void initState() {
     super.initState();
+
+    // Log the view as soon as page opens
+    HistoryService.instance.logView(
+      type: 'ticker',
+      id: widget.summary.symbol,
+      title: widget.summary.symbol, // replace with company name if you load it later
+    );
 
     // Live pricing (AlphaVantage or your existing source)
     _future = fetchStockQuote(widget.summary.symbol);

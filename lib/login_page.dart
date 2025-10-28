@@ -32,48 +32,72 @@ class _LoginPageState extends State<LoginPage> {
 
   // --- Helpers ---------------------------------------------------------------
 
-  Future<void> _ensureUserDoc(User user, {String? email, String? displayName, String? photoUrl}) async {
-    final docRef = FirebaseFirestore.instance.collection('users').doc(user.uid);
-    final snap = await docRef.get();
-    if (!snap.exists) {
-      await docRef.set({
-        'email': email ?? user.email,
-        'displayName': displayName ?? user.displayName,
-        'photoUrl': photoUrl ?? user.photoURL,
-        'createdAt': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
-    } else {
-      // Light touch update on subsequent sign-ins
-      await docRef.update({
-        'email': email ?? user.email,
-        'displayName': displayName ?? user.displayName,
-        'photoUrl': photoUrl ?? user.photoURL,
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
-    }
+  Future<void> _ensureUserDoc(
+      User user, {
+        String? email,
+        String? displayName,
+        String? photoUrl,
+      }) async {
+    final db = FirebaseFirestore.instance;
+    final userRef = db.collection('users').doc(user.uid);
+    final settingsRef = userRef.collection('settings').doc('settings');
+
+    await db.runTransaction((tx) async {
+      final now = FieldValue.serverTimestamp();
+
+      // Create or update the base user profile doc
+      final userSnap = await tx.get(userRef);
+      if (userSnap.exists) {
+        tx.update(userRef, {
+          'email': email ?? user.email,
+          'displayName': displayName ?? user.displayName,
+          'photoUrl': photoUrl ?? user.photoURL,
+          'updatedAt': now,
+        });
+      } else {
+        tx.set(userRef, {
+          'email': email ?? user.email,
+          'displayName': displayName ?? user.displayName,
+          'photoUrl': photoUrl ?? user.photoURL,
+          'createdAt': now,
+          'updatedAt': now,
+        });
+      }
+
+      // Ensure default settings doc exists (for history feature)
+      final settingsSnap = await tx.get(settingsRef);
+      if (!settingsSnap.exists) {
+        tx.set(settingsRef, {
+          'saveHistory': true,
+          'updatedAt': now,
+        });
+      }
+    });
   }
 
   String _prettyAuthError(FirebaseAuthException e) {
     switch (e.code) {
       case 'invalid-email':
         return 'That email address is not valid.';
-      case 'user-disabled':
-        return 'This user account has been disabled.';
       case 'user-not-found':
         return 'No account found for that email.';
       case 'wrong-password':
-        return 'Incorrect password. Try again.';
+      case 'invalid-credential': // common for “supplied credential is incorrect”
+        return 'Wrong email or password.';
+      case 'user-disabled':
+        return 'This account has been disabled.';
       case 'email-already-in-use':
         return 'An account already exists for that email.';
       case 'weak-password':
-        return 'Password is too weak. Use at least 6 characters.';
-      case 'operation-not-allowed':
-        return 'This sign-in method is not enabled in Firebase Console.';
+        return 'Password is too weak (min 6 characters).';
+      case 'too-many-requests':
+        return 'Too many attempts. Please wait a moment and try again.';
       case 'network-request-failed':
         return 'Network error. Check your connection and try again.';
+      case 'operation-not-allowed':
+        return 'This sign-in method is not enabled in Firebase.';
       default:
-        return e.message ?? 'Authentication failed. (${e.code})';
+        return 'Sign-in failed. Please check your details and try again.';
     }
   }
 

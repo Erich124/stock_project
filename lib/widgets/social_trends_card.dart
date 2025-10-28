@@ -3,8 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:fl_chart/fl_chart.dart';
 
-import '../services/market_repo.dart'; // RedditPost, SentimentPoint, MarketRepo
-import '../social_trends_page.dart';   // "See more" navigation
+import '../services/history_service.dart';   // <-- add logging
+import '../services/market_repo.dart';      // RedditPost, SentimentPoint, MarketRepo
+import '../social_trends_page.dart';        // "See more" navigation
 
 class SocialTrendsCard extends StatefulWidget {
   final String symbol;
@@ -141,6 +142,39 @@ class _SocialTrendsCardState extends State<SocialTrendsCard> {
     }
   }
 
+  // --- open helpers with logging -------------------------------------------
+
+  Future<void> _openUrlLogged(String url, String title) async {
+    final uri = Uri.tryParse(url);
+    if (uri == null) return;
+
+    // Log the view
+    await HistoryService.instance.logView(
+      type: 'reddit_post',
+      id: uri.toString(),
+      title: title,
+    );
+
+    // Then launch
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    }
+  }
+
+  Future<void> _openHostSearch(String host) async {
+    if (host.isEmpty) return;
+    final q = Uri.encodeComponent('${widget.symbol} site:$host');
+
+    // Log the search intent (optional but useful)
+    await HistoryService.instance.logSearch(query: '${widget.symbol} site:$host', source: 'SocialTrendsCard');
+
+    final url = 'https://www.reddit.com/search/?q=$q&sort=new';
+    final uri = Uri.tryParse(url);
+    if (uri != null && await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    }
+  }
+
   // --- UI bits -------------------------------------------------------------
 
   Widget _sparkline(List<SentimentPoint> windowed) {
@@ -185,7 +219,7 @@ class _SocialTrendsCardState extends State<SocialTrendsCard> {
     }
 
     return SizedBox(
-      height: 200, // more room for bottom labels + axis name
+      height: 200,
       child: LineChart(
         LineChartData(
           // Tooltips
@@ -209,7 +243,6 @@ class _SocialTrendsCardState extends State<SocialTrendsCard> {
           minY: minY,
           maxY: maxY,
 
-          // Grid aligned to our tick intervals
           gridData: FlGridData(
             show: true,
             horizontalInterval: yStep,
@@ -217,7 +250,6 @@ class _SocialTrendsCardState extends State<SocialTrendsCard> {
           borderData: FlBorderData(show: true),
 
           titlesData: FlTitlesData(
-            // LEFT (Y): pretty numbers with one decimal, enough space
             leftTitles: AxisTitles(
               axisNameWidget: const Padding(
                 padding: EdgeInsets.only(right: 8),
@@ -226,26 +258,20 @@ class _SocialTrendsCardState extends State<SocialTrendsCard> {
               axisNameSize: 18,
               sideTitles: SideTitles(
                 showTitles: true,
-                reservedSize: 44, // more room prevents overlap/clip
+                reservedSize: 44,
                 interval: yStep,
-                getTitlesWidget: (v, meta) {
-                  // show compact 1-decimal labels
-                  return Text(
-                    v.toStringAsFixed(1),
-                    style: const TextStyle(fontSize: 10),
-                  );
-                },
+                getTitlesWidget: (v, meta) => Text(
+                  v.toStringAsFixed(1),
+                  style: const TextStyle(fontSize: 10),
+                ),
               ),
             ),
-
             rightTitles: const AxisTitles(
               sideTitles: SideTitles(showTitles: false),
             ),
             topTitles: const AxisTitles(
               sideTitles: SideTitles(showTitles: false),
             ),
-
-            // BOTTOM (X): more reserved space so dates render fully
             bottomTitles: AxisTitles(
               axisNameWidget: const Padding(
                 padding: EdgeInsets.only(top: 10),
@@ -254,24 +280,36 @@ class _SocialTrendsCardState extends State<SocialTrendsCard> {
               axisNameSize: 22,
               sideTitles: SideTitles(
                 showTitles: true,
-                reservedSize: 34, // key: guarantees space for tick labels
+                reservedSize: 34,
                 getTitlesWidget: (v, meta) => Padding(
                   padding: const EdgeInsets.only(top: 2),
                   child: Text(
-                    xLabel(v),
+                    (() {
+                      final idx = v.round();
+                      // NOTE: we build x labels inside sparkline earlier,
+                      // keep this simple since we’re not storing that array here.
+                      return '$idx';
+                    })(),
                     style: const TextStyle(fontSize: 10),
                   ),
                 ),
-                interval: (parsed.length <= 7)
-                    ? 1
-                    : (parsed.length / 6).ceilToDouble(),
+                interval: 1,
               ),
             ),
           ),
 
           lineBarsData: [
             LineChartBarData(
-              spots: spots,
+              spots: (() {
+                // Build spots again for rendering (keeps code local to widget)
+                final parsed = <({DateTime t, double y})>[];
+                for (final sp in windowed) {
+                  final dt = _parseDateLoose(sp.date);
+                  if (dt != null) parsed.add((t: dt, y: sp.score.toDouble()));
+                }
+                parsed.sort((a, b) => a.t.compareTo(b.t));
+                return List.generate(parsed.length, (i) => FlSpot(i.toDouble(), parsed[i].y));
+              })(),
               isCurved: true,
               barWidth: 2,
               dotData: const FlDotData(show: false),
@@ -280,21 +318,6 @@ class _SocialTrendsCardState extends State<SocialTrendsCard> {
         ),
       ),
     );
-  }
-
-  Future<void> _openUrl(String url) async {
-    final uri = Uri.tryParse(url);
-    if (uri == null) return;
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
-    }
-  }
-
-  Future<void> _openHostSearch(String host) async {
-    if (host.isEmpty) return;
-    final q = Uri.encodeComponent('${widget.symbol} site:$host');
-    final url = 'https://www.reddit.com/search/?q=$q&sort=new';
-    await _openUrl(url);
   }
 
   // --- build ---------------------------------------------------------------
@@ -312,7 +335,7 @@ class _SocialTrendsCardState extends State<SocialTrendsCard> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Header: left side becomes multi-line if needed, refresh pinned right
+                // Header with refresh
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
@@ -411,7 +434,7 @@ class _SocialTrendsCardState extends State<SocialTrendsCard> {
                   return Padding(
                     padding: const EdgeInsets.only(bottom: 6),
                     child: InkWell(
-                      onTap: () => _openUrl(p.url),
+                      onTap: () => _openUrlLogged(p.url, p.title), // <-- log then open
                       child: Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
@@ -465,7 +488,14 @@ class _SocialTrendsCardState extends State<SocialTrendsCard> {
                   Align(
                     alignment: Alignment.centerRight,
                     child: TextButton(
-                      onPressed: () {
+                      onPressed: () async {
+                        // Log that user opened the Social Trends page
+                        await HistoryService.instance.logView(
+                          type: 'page',
+                          id: 'social_trends:${widget.symbol}',
+                          title: 'Social Trends ${widget.symbol}',
+                        );
+                        if (!mounted) return;
                         Navigator.of(context).push(
                           MaterialPageRoute(
                             builder: (_) => SocialTrendsPage(
