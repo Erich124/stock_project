@@ -1,5 +1,6 @@
 // lib/market_news_page.dart
 import 'package:flutter/material.dart';
+import 'services/history_service.dart';
 import 'news/article_detail_page.dart';
 import 'services/news_service.dart';            // For NewsItem
 import 'services/trending_service.dart';
@@ -68,9 +69,17 @@ class _MarketNewsPageState extends State<MarketNewsPage> {
     }
   }
 
-  void _openDetail(NewsItem item) {
-    // Pass the NewsItem directly to ArticleDetailPage (which now expects NewsItem)
-    Navigator.of(context).push(
+  Future<void> _openDetail(NewsItem item) async {
+    // Log as a recently viewed article (use link/url if available)
+    final id = item.link?.toString() ?? item.title;
+    await HistoryService.instance.logView(
+      type: 'article',
+      id: id,
+      title: item.title,
+    );
+
+    // Navigate to article detail
+    await Navigator.of(context).push(
       MaterialPageRoute(builder: (_) => ArticleDetailPage(article: item)),
     );
   }
@@ -101,7 +110,7 @@ class _MarketNewsPageState extends State<MarketNewsPage> {
       ),
       body: Column(
         children: [
-          // Search box
+          // Search box (local filter)
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
             child: TextField(

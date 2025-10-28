@@ -1,5 +1,6 @@
 // lib/company_news_page.dart
 import 'package:flutter/material.dart';
+import 'services/history_service.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'services/news_service.dart';
 
@@ -39,8 +40,18 @@ class _CompanyNewsPageState extends State<CompanyNewsPage> {
     }
   }
 
-  Future<void> _open(String url) async {
+  // OPEN an article: log "recent view" then launch the URL.
+  Future<void> _open(String url, String title) async {
     final uri = Uri.tryParse(url);
+
+    // 1) Log the view (use URL for stable id; fallback to title if needed)
+    await HistoryService.instance.logView(
+      type: 'article',
+      id: uri?.toString() ?? title,
+      title: title,
+    );
+
+    // 2) Launch the article
     if (uri != null && await canLaunchUrl(uri)) {
       await launchUrl(uri, mode: LaunchMode.externalApplication);
     }
@@ -51,7 +62,9 @@ class _CompanyNewsPageState extends State<CompanyNewsPage> {
     final q = _search.text.trim().toLowerCase();
     final list = q.isEmpty
         ? _items
-        : _items.where((n) => n.title.toLowerCase().contains(q) || n.source.toLowerCase().contains(q)).toList();
+        : _items.where((n) =>
+    n.title.toLowerCase().contains(q) ||
+        n.source.toLowerCase().contains(q)).toList();
 
     return Scaffold(
       appBar: AppBar(
@@ -96,7 +109,7 @@ class _CompanyNewsPageState extends State<CompanyNewsPage> {
                   title: Text(n.title),
                   subtitle: Text([n.source, when].where((s) => s.isNotEmpty).join(' • ')),
                   trailing: const Icon(Icons.open_in_new),
-                  onTap: () => _open(n.link),
+                  onTap: () => _open(n.link, n.title), // <— pass both link + title
                 );
               },
             ),

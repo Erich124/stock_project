@@ -1,9 +1,10 @@
 // lib/markets_page.dart
 import 'package:flutter/material.dart';
+import 'services/history_service.dart';
 
 import 'models.dart';
 import 'services/alpha_vantage.dart';
-import 'market_news_page.dart'; // NEW: open market-wide news
+import 'market_news_page.dart'; // open market-wide news
 
 typedef OpenSymbol = void Function(String symbol);
 
@@ -30,7 +31,31 @@ class _MarketsPageState extends State<MarketsPage> {
 
   Future<void> _refresh() async {
     setState(() => _future = fetchTopMoversRaw());
+    // This page doesn’t run a text query, so we DON’T call logSearch here.
     await _future.catchError((_) {});
+  }
+
+  Future<void> _openSymbol(String symbol, {String? title}) async {
+    // Log a “recent view” for ticker, then delegate to parent’s handler
+    await HistoryService.instance.logView(
+      type: 'ticker',
+      id: symbol,
+      title: title ?? symbol,
+    );
+    widget.onOpenSymbol(symbol);
+  }
+
+  Future<void> _openMarketNews() async {
+    // Log opening of the market-wide news page, then navigate
+    await HistoryService.instance.logView(
+      type: 'page',
+      id: 'market_news',
+      title: 'Market News',
+    );
+    if (!mounted) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const MarketNewsPage()),
+    );
   }
 
   // ---- Helpers: rank purely by % change ----
@@ -65,7 +90,7 @@ class _MarketsPageState extends State<MarketsPage> {
     final color = isUp ? Colors.green : Colors.red;
 
     return InkWell(
-      onTap: () => widget.onOpenSymbol(m.symbol),
+      onTap: () => _openSymbol(m.symbol, title: m.symbol),
       borderRadius: BorderRadius.circular(12),
       child: Ink(
         decoration: BoxDecoration(
@@ -133,11 +158,7 @@ class _MarketsPageState extends State<MarketsPage> {
         IconButton(
           tooltip: 'Market News',
           icon: const Icon(Icons.article_outlined),
-          onPressed: () {
-            Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const MarketNewsPage()),
-            );
-          },
+          onPressed: _openMarketNews, // async handler inside method
         ),
         const SizedBox(width: 4),
 
