@@ -79,3 +79,4 @@ backend/out/
 # =========================
 *.log
 .DS_Store
+.venv/

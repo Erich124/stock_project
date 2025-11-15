@@ -1,19 +1,21 @@
 // lib/home_page.dart
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart' show kIsWeb, defaultTargetPlatform, TargetPlatform;
+import 'package:flutter/foundation.dart'
+    show kIsWeb, defaultTargetPlatform, TargetPlatform;
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 import 'models.dart';
 import 'stock_details_page.dart';
 import 'markets_page.dart';
 import 'account_profile_page.dart';
-import 'login_page.dart'; // for redirect after logout
+import 'login_page.dart';
 
-// NEW: backend client + repo
+// Backend client + repo
 import 'services/api_client.dart';
 import 'services/market_repo.dart';
 
-// NEW: history logging
+// History logging
 import 'services/history_service.dart';
 
 class HomePage extends StatefulWidget {
@@ -69,7 +71,7 @@ class _HomePageState extends State<HomePage> {
 
     final symbolUpper = raw.toUpperCase();
     try {
-      // Log the user's search (Step 3 hook)
+      // Log the user's search
       await HistoryService.instance.logSearch(
         query: raw,
         source: 'HomeSearch',
@@ -95,77 +97,80 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
+  // --------------------  UI TABS  --------------------
+
   Widget _homeTab() {
-    return Padding(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        children: [
-          TextField(
-            controller: _search,
-            textInputAction: TextInputAction.search,
-            onSubmitted: (_) => _onSearch(), // logs search inside
-            decoration: InputDecoration(
-              labelText: 'Search by stock names',
-              hintText: 'e.g. AAPL, NVDA, AMZN…',
-              border: const OutlineInputBorder(),
-              suffixIcon: _loading
-                  ? const Padding(
-                padding: EdgeInsets.all(12.0),
-                child: SizedBox(
-                  width: 18,
-                  height: 18,
-                  child: CircularProgressIndicator(strokeWidth: 2),
+    final cs = Theme.of(context).colorScheme;
+    return SafeArea(
+      bottom: false,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          children: [
+            TextField(
+              controller: _search,
+              textInputAction: TextInputAction.search,
+              onSubmitted: (_) => _onSearch(),
+              decoration: InputDecoration(
+                labelText: 'Search by stock names',
+                hintText: 'e.g. AAPL, NVDA, AMZN…',
+                border: const OutlineInputBorder(),
+                suffixIcon: _loading
+                    ? const Padding(
+                  padding: EdgeInsets.all(12.0),
+                  child: SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                )
+                    : IconButton(
+                  icon: const Icon(Icons.clear),
+                  onPressed: () => _search.clear(),
+                  tooltip: 'Clear',
                 ),
-              )
-                  : IconButton(
-                icon: const Icon(Icons.clear),
-                onPressed: () => _search.clear(),
-                tooltip: 'Clear',
               ),
             ),
-          ),
-          const SizedBox(height: 12),
-          SizedBox(
-            width: double.infinity,
-            child: FilledButton.icon(
-              icon: const Icon(Icons.arrow_forward),
-              label: const Text('Go'),
-              onPressed: _loading ? null : _onSearch, // logs search inside
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                icon: const Icon(Icons.arrow_forward),
+                label: const Text('Go'),
+                onPressed: _loading ? null : _onSearch,
+              ),
             ),
-          ),
-          if (_error != null) ...[
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                const Icon(Icons.error_outline, color: Colors.red),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    _error!,
-                    style: const TextStyle(color: Colors.red),
+            if (_error != null) ...[
+              const SizedBox(height: 8),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Icon(Icons.error_outline, color: Colors.red),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      _error!,
+                      style: const TextStyle(color: Colors.red),
+                    ),
                   ),
+                ],
+              ),
+            ],
+            const SizedBox(height: 16),
+
+            // Recent searches area — fills remaining height and scrolls
+            Expanded(
+              child: Container(
+                decoration: BoxDecoration(
+                  color: cs.surfaceContainerHighest,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: cs.outlineVariant),
                 ),
-              ],
+                child: const _RecentSearchesCard(limit: 20),
+              ),
             ),
           ],
-          const SizedBox(height: 24),
-          Expanded(
-            child: Container(
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.surfaceContainerHighest,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                  color: Theme.of(context).colorScheme.outlineVariant,
-                ),
-              ),
-              child: const Text(
-                'Home Dashboard (ignore for now)',
-                style: TextStyle(fontStyle: FontStyle.italic),
-              ),
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -181,9 +186,7 @@ class _HomePageState extends State<HomePage> {
             const Icon(Icons.person, size: 80, color: Colors.deepPurple),
             const SizedBox(height: 16),
             Text(
-              user != null
-                  ? 'Logged in as: ${user.email}'
-                  : 'No user signed in',
+              user != null ? 'Logged in as: ${user.email}' : 'No user signed in',
               style: const TextStyle(fontSize: 18),
             ),
             const SizedBox(height: 24),
@@ -232,7 +235,6 @@ class _HomePageState extends State<HomePage> {
       appBar: AppBar(
         title: const Text('Stock Scout'),
         actions: [
-          // History button (opens the minimal History UI at /history)
           IconButton(
             tooltip: 'History',
             icon: const Icon(Icons.history),
@@ -263,5 +265,160 @@ class _HomePageState extends State<HomePage> {
         ],
       ),
     );
+  }
+}
+
+// --------------------  Recent Searches Card  --------------------
+
+class _RecentSearchesCard extends StatelessWidget {
+  const _RecentSearchesCard({this.limit = 20});
+  final int limit;
+
+  Stream<QuerySnapshot<Map<String, dynamic>>> _stream() {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) {
+      // empty stream if not logged in
+      return const Stream<QuerySnapshot<Map<String, dynamic>>>.empty();
+    }
+    final col = FirebaseFirestore.instance
+        .collection('users')
+        .doc(uid)
+        .collection('search_history');
+    return col.orderBy('ts', descending: true).limit(limit).snapshots();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+
+    return Padding(
+      padding: const EdgeInsets.all(12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header
+          Row(
+            children: [
+              const Text(
+                'Recent Searches',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+              ),
+              const Spacer(),
+              TextButton(
+                onPressed: () => Navigator.of(context).pushNamed('/history'),
+                child: const Text('See all'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+
+          // List
+          Expanded(
+            child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+              stream: _stream(),
+              builder: (context, snap) {
+                if (snap.connectionState == ConnectionState.waiting) {
+                  return const Center(
+                      child: CircularProgressIndicator(strokeWidth: 2));
+                }
+
+                final docs = snap.data?.docs ?? const [];
+                if (docs.isEmpty) {
+                  return Center(
+                    child: Text(
+                      'recent search history',
+                      style: TextStyle(
+                        color: cs.onSurfaceVariant,
+                        fontStyle: FontStyle.italic,
+                      ),
+                    ),
+                  );
+                }
+
+                return ListView.separated(
+                  itemCount: docs.length,
+                  separatorBuilder: (_, __) => const Divider(height: 1),
+                  itemBuilder: (context, i) {
+                    final d = docs[i].data();
+                    final query = (d['query'] ?? '') as String;
+                    final symbol = (d['symbol'] ?? d['symbolHint'] ?? '') as String;
+                    final source = (d['source'] ?? '') as String;
+
+                    DateTime? ts;
+                    final rawTs = d['ts'];
+                    if (rawTs is Timestamp) {
+                      ts = rawTs.toDate();
+                    } else if (rawTs is String) {
+                      ts = DateTime.tryParse(rawTs);
+                    }
+                    final rel = _fmtAgo(ts);
+
+                    return ListTile(
+                      leading: const Icon(Icons.search),
+                      title: Text(query),
+                      subtitle: Text(
+                        [
+                          if (symbol.isNotEmpty) 'symbol: $symbol',
+                          if (source.isNotEmpty) 'from: $source',
+                          if (rel.isNotEmpty) rel,
+                        ].join(' • '),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      onTap: () => _openSymbol(context, symbol.isNotEmpty ? symbol : query),
+                    );
+                  },
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  static String _fmtAgo(DateTime? t) {
+    if (t == null) return '';
+    final d = DateTime.now().difference(t);
+    if (d.inMinutes < 1) return 'just now';
+    if (d.inMinutes < 60) return '${d.inMinutes}m ago';
+    if (d.inHours < 24) return '${d.inHours}h ago';
+    return '${d.inDays}d ago';
+  }
+
+  Future<void> _openSymbol(BuildContext context, String raw) async {
+    final symbolUpper = raw.trim().toUpperCase();
+    if (symbolUpper.isEmpty) return;
+
+    // Reuse the repo from the nearest HomePage state
+    final state = context.findAncestorStateOfType<_HomePageState>();
+    if (state == null) return;
+
+    try {
+      // Log as a search coming from RecentList
+      await HistoryService.instance.logSearch(
+        query: raw,
+        source: 'RecentList',
+        symbolHint: symbolUpper,
+      );
+
+      final exists = await state._symbolExists(symbolUpper);
+      if (!exists) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Symbol $symbolUpper not found')),
+        );
+        return;
+      }
+
+      final summary = await state._fetchSummary(symbolUpper);
+      if (!context.mounted) return;
+      Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => StockDetailsPage(summary: summary)),
+      );
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Open failed: $e')),
+      );
+    }
   }
 }

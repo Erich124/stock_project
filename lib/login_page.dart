@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+
 import 'home_page.dart';
 
 enum AuthMode { none, signIn, signUp }
@@ -32,7 +33,8 @@ class _LoginPageState extends State<LoginPage> {
 
   // --- Helpers ---------------------------------------------------------------
 
-  Future<void> _ensureUserDoc(
+  /// Upsert the base user profile (no transactions; atomic on a single doc).
+  Future<void> _upsertUserDoc(
       User user, {
         String? email,
         String? displayName,
@@ -40,39 +42,25 @@ class _LoginPageState extends State<LoginPage> {
       }) async {
     final db = FirebaseFirestore.instance;
     final userRef = db.collection('users').doc(user.uid);
+
+    await userRef.set({
+      'uid': user.uid,
+      'email': email ?? user.email,
+      'displayName': displayName ?? user.displayName,
+      'photoUrl': photoUrl ?? user.photoURL,
+      'lastLogin': FieldValue.serverTimestamp(),
+      'loginCount': FieldValue.increment(1),
+    }, SetOptions(merge: true));
+
+    // Ensure a default settings doc exists (do a simple read→create if missing).
     final settingsRef = userRef.collection('settings').doc('settings');
-
-    await db.runTransaction((tx) async {
-      final now = FieldValue.serverTimestamp();
-
-      // Create or update the base user profile doc
-      final userSnap = await tx.get(userRef);
-      if (userSnap.exists) {
-        tx.update(userRef, {
-          'email': email ?? user.email,
-          'displayName': displayName ?? user.displayName,
-          'photoUrl': photoUrl ?? user.photoURL,
-          'updatedAt': now,
-        });
-      } else {
-        tx.set(userRef, {
-          'email': email ?? user.email,
-          'displayName': displayName ?? user.displayName,
-          'photoUrl': photoUrl ?? user.photoURL,
-          'createdAt': now,
-          'updatedAt': now,
-        });
-      }
-
-      // Ensure default settings doc exists (for history feature)
-      final settingsSnap = await tx.get(settingsRef);
-      if (!settingsSnap.exists) {
-        tx.set(settingsRef, {
-          'saveHistory': true,
-          'updatedAt': now,
-        });
-      }
-    });
+    final settingsSnap = await settingsRef.get();
+    if (!settingsSnap.exists) {
+      await settingsRef.set({
+        'saveHistory': true,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    }
   }
 
   String _prettyAuthError(FirebaseAuthException e) {
@@ -82,7 +70,7 @@ class _LoginPageState extends State<LoginPage> {
       case 'user-not-found':
         return 'No account found for that email.';
       case 'wrong-password':
-      case 'invalid-credential': // common for “supplied credential is incorrect”
+      case 'invalid-credential':
         return 'Wrong email or password.';
       case 'user-disabled':
         return 'This account has been disabled.';
@@ -112,14 +100,18 @@ class _LoginPageState extends State<LoginPage> {
 
   Future<void> _goHome() async {
     if (!mounted) return;
-    Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => const HomePage()));
+    Navigator.of(context)
+        .pushReplacement(MaterialPageRoute(builder: (_) => const HomePage()));
   }
 
   // --- Email/Password flows --------------------------------------------------
 
   Future<void> _authenticate() async {
     if (!_formKey.currentState!.validate()) return;
-    setState(() { _loading = true; _error = null; });
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
 
     try {
       final email = _emailCtrl.text.trim();
@@ -127,24 +119,28 @@ class _LoginPageState extends State<LoginPage> {
       UserCredential cred;
 
       if (_mode == AuthMode.signIn) {
-        cred = await FirebaseAuth.instance.signInWithEmailAndPassword(email: email, password: pwd);
+        cred = await FirebaseAuth.instance
+            .signInWithEmailAndPassword(email: email, password: pwd);
       } else {
         // If currently anonymous, link to preserve UID/data.
         final current = FirebaseAuth.instance.currentUser;
         if (current != null && current.isAnonymous) {
-          final epCred = EmailAuthProvider.credential(email: email, password: pwd);
+          final epCred =
+          EmailAuthProvider.credential(email: email, password: pwd);
           cred = await current.linkWithCredential(epCred);
         } else {
-          cred = await FirebaseAuth.instance.createUserWithEmailAndPassword(email: email, password: pwd);
+          cred = await FirebaseAuth.instance
+              .createUserWithEmailAndPassword(email: email, password: pwd);
           // Optionally: await cred.user?.sendEmailVerification();
         }
       }
 
-      await _ensureUserDoc(cred.user!, email: _emailCtrl.text.trim());
+      await _upsertUserDoc(cred.user!, email: email);
       await _goHome();
     } on FirebaseAuthException catch (e) {
       setState(() => _error = _prettyAuthError(e));
     } catch (e) {
+      // Catch Firestore errors as well (e.g., rules)
       setState(() => _error = 'Unexpected error: $e');
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -154,15 +150,20 @@ class _LoginPageState extends State<LoginPage> {
   Future<void> _forgotPassword() async {
     final email = _emailCtrl.text.trim();
     if (email.isEmpty || !email.contains('@')) {
-      setState(() => _error = 'Enter your email above, then tap "Forgot password".');
+      setState(() =>
+      _error = 'Enter your email above, then tap "Forgot password".');
       return;
     }
-    setState(() { _loading = true; _error = null; });
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
     try {
       await FirebaseAuth.instance.sendPasswordResetEmail(email: email);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Password reset email sent. Check your inbox.')),
+        const SnackBar(
+            content: Text('Password reset email sent. Check your inbox.')),
       );
     } on FirebaseAuthException catch (e) {
       setState(() => _error = _prettyAuthError(e));
@@ -174,10 +175,13 @@ class _LoginPageState extends State<LoginPage> {
   // --- Anonymous (Guest) -----------------------------------------------------
 
   Future<void> _signInAnon() async {
-    setState(() { _loading = true; _error = null; });
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
     try {
       final cred = await FirebaseAuth.instance.signInAnonymously();
-      await _ensureUserDoc(cred.user!, displayName: 'Guest');
+      await _upsertUserDoc(cred.user!, displayName: 'Guest');
       await _goHome();
     } on FirebaseAuthException catch (e) {
       setState(() => _error = _prettyAuthError(e));
@@ -189,7 +193,10 @@ class _LoginPageState extends State<LoginPage> {
   // --- Google Sign-In (Android ready; SHA-1/256 configured) ------------------
 
   Future<void> _signInWithGoogle() async {
-    setState(() { _loading = true; _error = null; });
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
     try {
       final gUser = await GoogleSignIn().signIn();
       if (gUser == null) {
@@ -202,7 +209,7 @@ class _LoginPageState extends State<LoginPage> {
         accessToken: gAuth.accessToken,
       );
 
-      // If currently anonymous, prefer linking so data/UID is preserved.
+      // If currently anonymous, link so data/UID is preserved.
       final current = FirebaseAuth.instance.currentUser;
       UserCredential cred;
       if (current != null && current.isAnonymous) {
@@ -212,7 +219,7 @@ class _LoginPageState extends State<LoginPage> {
       }
 
       final user = cred.user!;
-      await _ensureUserDoc(
+      await _upsertUserDoc(
         user,
         email: user.email,
         displayName: user.displayName,
@@ -242,7 +249,9 @@ class _LoginPageState extends State<LoginPage> {
             padding: const EdgeInsets.all(16),
             child: AnimatedSwitcher(
               duration: const Duration(milliseconds: 200),
-              child: _mode == AuthMode.none ? _buildChoice(cs) : _buildForm(cs),
+              child: _mode == AuthMode.none
+                  ? _buildChoice(cs)
+                  : _buildForm(cs),
             ),
           ),
         ),
@@ -311,7 +320,8 @@ class _LoginPageState extends State<LoginPage> {
               ),
               Text(
                 isSignIn ? 'Sign In' : 'Sign Up',
-                style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w600),
+                style:
+                const TextStyle(fontSize: 20, fontWeight: FontWeight.w600),
               ),
             ],
           ),
@@ -325,7 +335,8 @@ class _LoginPageState extends State<LoginPage> {
               labelText: 'Email',
               border: OutlineInputBorder(),
             ),
-            validator: (v) => (v == null || !v.contains('@')) ? 'Enter a valid email' : null,
+            validator: (v) =>
+            (v == null || !v.contains('@')) ? 'Enter a valid email' : null,
           ),
           const SizedBox(height: 12),
           TextFormField(
@@ -337,12 +348,16 @@ class _LoginPageState extends State<LoginPage> {
               border: const OutlineInputBorder(),
               suffixIcon: IconButton(
                 tooltip: _obscure ? 'Show password' : 'Hide password',
-                icon: Icon(_obscure ? Icons.visibility : Icons.visibility_off),
-                onPressed: _loading ? null : () => setState(() => _obscure = !_obscure),
+                icon:
+                Icon(_obscure ? Icons.visibility : Icons.visibility_off),
+                onPressed: _loading
+                    ? null
+                    : () => setState(() => _obscure = !_obscure),
               ),
             ),
             onFieldSubmitted: (_) => _authenticate(),
-            validator: (v) => (v == null || v.length < 6) ? 'Min 6 characters' : null,
+            validator: (v) =>
+            (v == null || v.length < 6) ? 'Min 6 characters' : null,
           ),
           if (_error != null) ...[
             const SizedBox(height: 8),
@@ -354,7 +369,11 @@ class _LoginPageState extends State<LoginPage> {
             child: FilledButton(
               onPressed: _loading ? null : _authenticate,
               child: _loading
-                  ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                  ? const SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
                   : Text(isSignIn ? 'Continue' : 'Create Account'),
             ),
           ),

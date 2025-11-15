@@ -1,0 +1,21 @@
+#,Input,Expected Output,Actual Output
+1,AAPL beats earnings and raises guidance,Positive,Positive
+2,Tesla delivers a record number of vehicles in Q3,Positive,Positive
+3,NVDA revenue soars; demand remains strong,Positive,Positive
+4,Microsoft announces dividend increase,Positive,Positive
+5,Amazon posts surprise profit this quarter,Positive,Positive
+6,Meta stock jumps after strong ad sales,Positive,Positive
+7,Apple unveils new chips with better margins,Positive,Positive
+8,AAPL cuts iPhone production on weak demand,Negative,Negative
+9,TSLA recalls vehicles over safety issue,Negative,Positive
+10,NVDA faces new export restrictions,Negative,Negative
+11,Fed hints at another rate hike,Negative,Negative
+12,Snap misses revenue expectations,Negative,Negative
+13,Intel warns of weak PC demand,Negative,Negative
+14,Lucid plans share offering to raise cash,Negative,Positive
+15,AAPL hosts its annual developer conference,Neutral,Neutral
+16,TSLA files 10-Q with the SEC,Neutral,Neutral
+17,Market opens mixed on Tuesday,Neutral,Neutral
+18,Company schedules earnings call for next week,Neutral,Neutral
+19,Analyst maintains hold rating on AAPL,Neutral,Neutral
+20,Apple product event announced for next week,Neutral,Neutral

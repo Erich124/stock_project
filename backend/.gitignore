@@ -35,17 +35,18 @@ unlinked_spec.ds
 
 # -----------------------
 # Android / Gradle
+# (Keep Gradle wrapper files in repo for portability)
 # -----------------------
-**/android/**/gradle-wrapper.jar
 .gradle/
 **/android/captures/
-**/android/gradlew
-**/android/gradlew.bat
 **/android/local.properties
 **/android/**/GeneratedPluginRegistrant.java
 **/android/key.properties
 **/build/
 .cxx/
+
+# Optional: keep Firebase client config private
+android/app/google-services.json
 
 # -----------------------
 # iOS / Xcode
@@ -78,6 +79,8 @@ unlinked_spec.ds
 **/ios/Flutter/flutter_export_environment.sh
 **/ios/ServiceDefinitions.json
 **/ios/Runner/GeneratedPluginRegistrant.*
+# Optional: keep Firebase client config private
+ios/Runner/GoogleService-Info.plist
 # Exceptions
 !**/ios/**/default.mode1v3
 !**/ios/**/default.mode2v3
@@ -112,6 +115,9 @@ unlinked_spec.ds
 # -----------------------
 backend/.env
 backend/.env.*
+backend/praw.ini
+backend/serviceAccount*.json
+backend/credentials*.json
 backend/__pycache__/
 backend/out/
 backend/*.log
@@ -121,6 +127,7 @@ backend/.ruff_cache/
 backend/.coverage
 backend/*.egg-info/
 backend/*.sqlite
+backend/*.db
 backend/.ipynb_checkpoints/
 
 # Also ignore common Python caches anywhere
@@ -150,3 +157,8 @@ env/
 # -----------------------
 coverage/
 app.*.symbols
+
+# -----------------------
+# Generic dotenv (anywhere)
+# -----------------------
+*.env

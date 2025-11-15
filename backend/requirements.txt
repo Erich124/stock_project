@@ -4,3 +4,5 @@ yfinance
 praw
 langid
 python-dotenv
+
+nltk==3.9.1
