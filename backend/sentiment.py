@@ -5,13 +5,37 @@ from datetime import datetime
 from typing import Any, Dict, List
 from collections import defaultdict
 
-# Use NLTK VADER if available; fall back to standalone vaderSentiment
+# ------------------------------------------------------
+# Sentiment analyzer setup (works locally & on Render)
+# ------------------------------------------------------
+# Try NLTK VADER and auto-download the lexicon.
+# If anything about NLTK fails, fall back to vaderSentiment (if installed).
 try:
-    from nltk.sentiment import SentimentIntensityAnalyzer
-except Exception:  # pragma: no cover
-    from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer  # type: ignore
+    import nltk  # type: ignore
+    from nltk.sentiment import SentimentIntensityAnalyzer as _NLTK_SIA
 
-_sia = SentimentIntensityAnalyzer()
+    def _build_sia() -> _NLTK_SIA:
+        # Ensure the VADER lexicon exists; download once if missing.
+        try:
+            nltk.data.find("sentiment/vader_lexicon.zip")
+        except LookupError:
+            nltk.download("vader_lexicon", quiet=True)
+        return _NLTK_SIA()
+
+    _sia = _build_sia()
+except Exception:
+    # Fallback: use standalone vaderSentiment analyzer if NLTK is unavailable
+    try:
+        from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer as _VS_SIA  # type: ignore
+    except Exception:
+        raise RuntimeError(
+            "No VADER sentiment analyzer available. Install nltk or vaderSentiment."
+        )
+    _sia = _VS_SIA()
+
+# ------------------------------------------------------
+# Finance tweaks + helpers
+# ------------------------------------------------------
 
 # Light domain adaptation for finance headlines
 _FIN_CUES = {
