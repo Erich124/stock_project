@@ -32,8 +32,8 @@ class ApiClient {
     this.timeout = const Duration(seconds: 8),
     this.maxRetries = 1,
     this.debug = true,
-  })  : baseUrl = baseUrl ?? _resolveBaseUrl(),
-        _http = httpClient ?? http.Client() {
+  }) : baseUrl = baseUrl ?? _resolveBaseUrl(),
+       _http = httpClient ?? http.Client() {
     if (debug) {
       // ignore: avoid_print
       print('[ApiClient] baseUrl=$baseUrl (resolved=$baseUrl)');
@@ -48,34 +48,56 @@ class ApiClient {
   // ----------------------------
 
   Future<List<dynamic>> getJsonList(
-      String path, {
-        Map<String, String>? query,
-        Map<String, String>? headers,
-      }) async {
-    final data = await _requestJson('GET', path, query: query, headers: headers);
+    String path, {
+    Map<String, String>? query,
+    Map<String, String>? headers,
+  }) async {
+    final data = await _requestJson(
+      'GET',
+      path,
+      query: query,
+      headers: headers,
+    );
     if (data is List) return data;
-    throw StateError('Expected a JSON list from $path; got ${data.runtimeType}');
+    throw StateError(
+      'Expected a JSON list from $path; got ${data.runtimeType}',
+    );
   }
 
   Future<Map<String, dynamic>> getJsonMap(
-      String path, {
-        Map<String, String>? query,
-        Map<String, String>? headers,
-      }) async {
-    final data = await _requestJson('GET', path, query: query, headers: headers);
+    String path, {
+    Map<String, String>? query,
+    Map<String, String>? headers,
+  }) async {
+    final data = await _requestJson(
+      'GET',
+      path,
+      query: query,
+      headers: headers,
+    );
     if (data is Map<String, dynamic>) return data;
-    throw StateError('Expected a JSON object from $path; got ${data.runtimeType}');
+    throw StateError(
+      'Expected a JSON object from $path; got ${data.runtimeType}',
+    );
   }
 
   Future<Map<String, dynamic>> postJsonMap(
-      String path, {
-        Map<String, String>? query,
-        Object? body, // Map or List, will be jsonEncoded
-        Map<String, String>? headers,
-      }) async {
-    final data = await _requestJson('POST', path, query: query, body: body, headers: headers);
+    String path, {
+    Map<String, String>? query,
+    Object? body, // Map or List, will be jsonEncoded
+    Map<String, String>? headers,
+  }) async {
+    final data = await _requestJson(
+      'POST',
+      path,
+      query: query,
+      body: body,
+      headers: headers,
+    );
     if (data is Map<String, dynamic>) return data;
-    throw StateError('Expected a JSON object from POST $path; got ${data.runtimeType}');
+    throw StateError(
+      'Expected a JSON object from POST $path; got ${data.runtimeType}',
+    );
   }
 
   // ----------------------------
@@ -87,11 +109,10 @@ class ApiClient {
     int days = 14,
     int limit = 50,
   }) {
-    return getJsonList('/reddit', query: {
-      'ticker': ticker,
-      'days': '$days',
-      'limit': '$limit',
-    });
+    return getJsonList(
+      '/reddit',
+      query: {'ticker': ticker, 'days': '$days', 'limit': '$limit'},
+    );
   }
 
   Future<Map<String, dynamic>> fetchSentiment({
@@ -99,11 +120,10 @@ class ApiClient {
     int days = 14,
     int limit = 50,
   }) {
-    return getJsonMap('/sentiment', query: {
-      'ticker': ticker,
-      'days': '$days',
-      'limit': '$limit',
-    });
+    return getJsonMap(
+      '/sentiment',
+      query: {'ticker': ticker, 'days': '$days', 'limit': '$limit'},
+    );
   }
 
   /// e.g., GET /summary/NVDA
@@ -122,7 +142,9 @@ class ApiClient {
 
   static String _resolveBaseUrl() {
     // Build-time override
-    const fromDefine = String.fromEnvironment('API_BASE_URL'); // --dart-define=API_BASE_URL=...
+    const fromDefine = String.fromEnvironment(
+      'API_BASE_URL',
+    ); // --dart-define=API_BASE_URL=...
     if (fromDefine.isNotEmpty) return fromDefine;
 
     if (kIsWeb) {
@@ -138,18 +160,35 @@ class ApiClient {
     return 'http://127.0.0.1:8000';
   }
 
+  static String resolvedBaseUrl() => _resolveBaseUrl();
+
+  static bool _isLoopbackHost(String host) {
+    return host == '127.0.0.1' || host == 'localhost';
+  }
+
+  static String _deviceSetupMessage(Uri uri) {
+    if (_isLoopbackHost(uri.host)) {
+      return 'Your backend is not reachable at $uri. '
+          'If you are using the iOS simulator, start the backend on your Mac '
+          'on port 8000. If you are using a real device, run the app with '
+          '--dart-define=API_BASE_URL=http://YOUR-MAC-LAN-IP:8000.';
+    }
+
+    return 'Could not reach the backend at $uri.';
+  }
+
   Uri _buildUri(String path, Map<String, String>? query) {
     final normalized = path.startsWith('/') ? path : '/$path';
     return Uri.parse('$baseUrl$normalized').replace(queryParameters: query);
   }
 
   Future<dynamic> _requestJson(
-      String method,
-      String path, {
-        Map<String, String>? query,
-        Object? body,
-        Map<String, String>? headers,
-      }) async {
+    String method,
+    String path, {
+    Map<String, String>? query,
+    Object? body,
+    Map<String, String>? headers,
+  }) async {
     final uri = _buildUri(path, query);
     final mergedHeaders = {
       'Accept': 'application/json',
@@ -164,8 +203,12 @@ class ApiClient {
         print('[ApiClient] retry #$attempt $method $uri');
       }
       try {
-        final http.Response resp = await _send(method, uri, mergedHeaders, body)
-            .timeout(timeout);
+        final http.Response resp = await _send(
+          method,
+          uri,
+          mergedHeaders,
+          body,
+        ).timeout(timeout);
 
         if (resp.statusCode >= 200 && resp.statusCode < 300) {
           return _decodeJson(resp);
@@ -182,11 +225,15 @@ class ApiClient {
         await Future.delayed(Duration(milliseconds: 300 * (1 << attempt)));
       } on http.ClientException catch (e) {
         lastError = e;
-        if (attempt == maxRetries) rethrow;
+        if (attempt == maxRetries) {
+          throw HttpException('${_deviceSetupMessage(uri)}\n$e');
+        }
         await Future.delayed(Duration(milliseconds: 300 * (1 << attempt)));
       } on SocketException catch (e) {
         lastError = e;
-        if (attempt == maxRetries) rethrow;
+        if (attempt == maxRetries) {
+          throw HttpException('${_deviceSetupMessage(uri)}\n$e');
+        }
         await Future.delayed(Duration(milliseconds: 300 * (1 << attempt)));
       } catch (e) {
         // Other errors are not likely transient—bubble up immediately.
@@ -198,22 +245,34 @@ class ApiClient {
   }
 
   Future<http.Response> _send(
-      String method,
-      Uri uri,
-      Map<String, String> headers,
-      Object? body,
-      ) {
+    String method,
+    Uri uri,
+    Map<String, String> headers,
+    Object? body,
+  ) {
     switch (method) {
       case 'GET':
         return _http.get(uri, headers: headers);
       case 'POST':
-        return _http.post(uri, headers: headers, body: body == null ? null : jsonEncode(body));
+        return _http.post(
+          uri,
+          headers: headers,
+          body: body == null ? null : jsonEncode(body),
+        );
       case 'DELETE':
         return _http.delete(uri, headers: headers);
       case 'PUT':
-        return _http.put(uri, headers: headers, body: body == null ? null : jsonEncode(body));
+        return _http.put(
+          uri,
+          headers: headers,
+          body: body == null ? null : jsonEncode(body),
+        );
       case 'PATCH':
-        return _http.patch(uri, headers: headers, body: body == null ? null : jsonEncode(body));
+        return _http.patch(
+          uri,
+          headers: headers,
+          body: body == null ? null : jsonEncode(body),
+        );
       default:
         throw ArgumentError('Unsupported method: $method');
     }

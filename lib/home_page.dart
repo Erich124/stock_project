@@ -1,7 +1,4 @@
-// lib/home_page.dart
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart'
-    show kIsWeb, defaultTargetPlatform, TargetPlatform;
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
@@ -9,7 +6,7 @@ import 'models.dart';
 import 'stock_details_page.dart';
 import 'markets_page.dart';
 import 'account_profile_page.dart';
-import 'login_page.dart';
+import 'services/alpha_vantage.dart' as alpha_vantage;
 
 // Backend client + repo
 import 'services/api_client.dart';
@@ -36,10 +33,7 @@ class _HomePageState extends State<HomePage> {
   @override
   void initState() {
     super.initState();
-    final baseUrl = (!kIsWeb && defaultTargetPlatform == TargetPlatform.android)
-        ? 'http://10.0.2.2:8000'
-        : 'http://127.0.0.1:8000';
-    _api = ApiClient(baseUrl: baseUrl);
+    _api = ApiClient();
     _repo = MarketRepo(_api);
   }
 
@@ -50,8 +44,7 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<bool> _symbolExists(String symbolUpper) async {
-    final j = await _api.getJsonMap('/symbols/$symbolUpper/exists');
-    return (j['exists'] == true);
+    return alpha_vantage.symbolExists(symbolUpper);
   }
 
   Future<StockSummary> _fetchSummary(String symbolUpper) async {
@@ -117,18 +110,18 @@ class _HomePageState extends State<HomePage> {
                 border: const OutlineInputBorder(),
                 suffixIcon: _loading
                     ? const Padding(
-                  padding: EdgeInsets.all(12.0),
-                  child: SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  ),
-                )
+                        padding: EdgeInsets.all(12.0),
+                        child: SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                      )
                     : IconButton(
-                  icon: const Icon(Icons.clear),
-                  onPressed: () => _search.clear(),
-                  tooltip: 'Clear',
-                ),
+                        icon: const Icon(Icons.clear),
+                        onPressed: () => _search.clear(),
+                        tooltip: 'Clear',
+                      ),
               ),
             ),
             const SizedBox(height: 12),
@@ -175,60 +168,27 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Widget _profileTab() {
-    final user = FirebaseAuth.instance.currentUser;
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24.0),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(Icons.person, size: 80, color: Colors.deepPurple),
-            const SizedBox(height: 16),
-            Text(
-              user != null ? 'Logged in as: ${user.email}' : 'No user signed in',
-              style: const TextStyle(fontSize: 18),
-            ),
-            const SizedBox(height: 24),
-            FilledButton.icon(
-              icon: const Icon(Icons.logout),
-              label: const Text('Sign Out'),
-              onPressed: () async {
-                await FirebaseAuth.instance.signOut();
-                if (context.mounted) {
-                  Navigator.pushAndRemoveUntil(
-                    context,
-                    MaterialPageRoute(builder: (_) => const LoginPage()),
-                        (route) => false,
-                  );
-                }
-              },
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final pages = <Widget>[
       _homeTab(),
-      MarketsPage(onOpenSymbol: (symbol) {
-        Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (_) => StockDetailsPage(
-              summary: StockSummary(
-                symbol: symbol,
-                price: 0,
-                changePct: 0,
-                sentiment: 'Neutral',
+      MarketsPage(
+        onOpenSymbol: (symbol) {
+          Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (_) => StockDetailsPage(
+                summary: StockSummary(
+                  symbol: symbol,
+                  price: 0,
+                  changePct: 0,
+                  sentiment: 'Neutral',
+                ),
               ),
             ),
-          ),
-        );
-      }),
-      _profileTab(),
+          );
+        },
+      ),
+      const AccountProfilePage(),
     ];
 
     return Scaffold(
@@ -319,7 +279,8 @@ class _RecentSearchesCard extends StatelessWidget {
               builder: (context, snap) {
                 if (snap.connectionState == ConnectionState.waiting) {
                   return const Center(
-                      child: CircularProgressIndicator(strokeWidth: 2));
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  );
                 }
 
                 final docs = snap.data?.docs ?? const [];
@@ -341,7 +302,8 @@ class _RecentSearchesCard extends StatelessWidget {
                   itemBuilder: (context, i) {
                     final d = docs[i].data();
                     final query = (d['query'] ?? '') as String;
-                    final symbol = (d['symbol'] ?? d['symbolHint'] ?? '') as String;
+                    final symbol =
+                        (d['symbol'] ?? d['symbolHint'] ?? '') as String;
                     final source = (d['source'] ?? '') as String;
 
                     DateTime? ts;
@@ -364,7 +326,10 @@ class _RecentSearchesCard extends StatelessWidget {
                         ].join(' • '),
                         overflow: TextOverflow.ellipsis,
                       ),
-                      onTap: () => _openSymbol(context, symbol.isNotEmpty ? symbol : query),
+                      onTap: () => _openSymbol(
+                        context,
+                        symbol.isNotEmpty ? symbol : query,
+                      ),
                     );
                   },
                 );
@@ -402,6 +367,7 @@ class _RecentSearchesCard extends StatelessWidget {
       );
 
       final exists = await state._symbolExists(symbolUpper);
+      if (!context.mounted) return;
       if (!exists) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Symbol $symbolUpper not found')),
@@ -416,9 +382,9 @@ class _RecentSearchesCard extends StatelessWidget {
       );
     } catch (e) {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Open failed: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Open failed: $e')));
     }
   }
 }

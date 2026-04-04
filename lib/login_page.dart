@@ -1,8 +1,14 @@
 // lib/login_page.dart
-import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'dart:convert';
+import 'dart:io' show Platform;
+import 'dart:math';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:crypto/crypto.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/material.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 
 import 'home_page.dart';
 
@@ -31,15 +37,12 @@ class _LoginPageState extends State<LoginPage> {
     super.dispose();
   }
 
-  // --- Helpers ---------------------------------------------------------------
-
-  /// Upsert the base user profile (no transactions; atomic on a single doc).
   Future<void> _upsertUserDoc(
-      User user, {
-        String? email,
-        String? displayName,
-        String? photoUrl,
-      }) async {
+    User user, {
+    String? email,
+    String? displayName,
+    String? photoUrl,
+  }) async {
     final db = FirebaseFirestore.instance;
     final userRef = db.collection('users').doc(user.uid);
 
@@ -52,7 +55,6 @@ class _LoginPageState extends State<LoginPage> {
       'loginCount': FieldValue.increment(1),
     }, SetOptions(merge: true));
 
-    // Ensure a default settings doc exists (do a simple read→create if missing).
     final settingsRef = userRef.collection('settings').doc('settings');
     final settingsSnap = await settingsRef.get();
     if (!settingsSnap.exists) {
@@ -84,9 +86,33 @@ class _LoginPageState extends State<LoginPage> {
         return 'Network error. Check your connection and try again.';
       case 'operation-not-allowed':
         return 'This sign-in method is not enabled in Firebase.';
+      case 'credential-already-in-use':
+        return 'That credential is already linked to another account.';
+      case 'provider-already-linked':
+        return 'This sign-in provider is already linked.';
+      case 'account-exists-with-different-credential':
+        return 'An account already exists with the same email using a different sign-in method.';
+      case 'missing-or-invalid-nonce':
+        return 'Apple sign-in failed because the security nonce was invalid.';
       default:
         return 'Sign-in failed. Please check your details and try again.';
     }
+  }
+
+  String _generateNonce([int length = 32]) {
+    const charset =
+        '0123456789ABCDEFGHIJKLMNOPQRSTUVXYZabcdefghijklmnopqrstuvwxyz-._';
+    final random = Random.secure();
+    return List.generate(
+      length,
+      (_) => charset[random.nextInt(charset.length)],
+    ).join();
+  }
+
+  String _sha256ofString(String input) {
+    final bytes = utf8.encode(input);
+    final digest = sha256.convert(bytes);
+    return digest.toString();
   }
 
   void _pickMode(AuthMode m) {
@@ -100,11 +126,10 @@ class _LoginPageState extends State<LoginPage> {
 
   Future<void> _goHome() async {
     if (!mounted) return;
-    Navigator.of(context)
-        .pushReplacement(MaterialPageRoute(builder: (_) => const HomePage()));
+    Navigator.of(
+      context,
+    ).pushReplacement(MaterialPageRoute(builder: (_) => const HomePage()));
   }
-
-  // --- Email/Password flows --------------------------------------------------
 
   Future<void> _authenticate() async {
     if (!_formKey.currentState!.validate()) return;
@@ -119,19 +144,23 @@ class _LoginPageState extends State<LoginPage> {
       UserCredential cred;
 
       if (_mode == AuthMode.signIn) {
-        cred = await FirebaseAuth.instance
-            .signInWithEmailAndPassword(email: email, password: pwd);
+        cred = await FirebaseAuth.instance.signInWithEmailAndPassword(
+          email: email,
+          password: pwd,
+        );
       } else {
-        // If currently anonymous, link to preserve UID/data.
         final current = FirebaseAuth.instance.currentUser;
         if (current != null && current.isAnonymous) {
-          final epCred =
-          EmailAuthProvider.credential(email: email, password: pwd);
+          final epCred = EmailAuthProvider.credential(
+            email: email,
+            password: pwd,
+          );
           cred = await current.linkWithCredential(epCred);
         } else {
-          cred = await FirebaseAuth.instance
-              .createUserWithEmailAndPassword(email: email, password: pwd);
-          // Optionally: await cred.user?.sendEmailVerification();
+          cred = await FirebaseAuth.instance.createUserWithEmailAndPassword(
+            email: email,
+            password: pwd,
+          );
         }
       }
 
@@ -140,7 +169,6 @@ class _LoginPageState extends State<LoginPage> {
     } on FirebaseAuthException catch (e) {
       setState(() => _error = _prettyAuthError(e));
     } catch (e) {
-      // Catch Firestore errors as well (e.g., rules)
       setState(() => _error = 'Unexpected error: $e');
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -150,20 +178,24 @@ class _LoginPageState extends State<LoginPage> {
   Future<void> _forgotPassword() async {
     final email = _emailCtrl.text.trim();
     if (email.isEmpty || !email.contains('@')) {
-      setState(() =>
-      _error = 'Enter your email above, then tap "Forgot password".');
+      setState(() {
+        _error = 'Enter your email above, then tap "Forgot password".';
+      });
       return;
     }
+
     setState(() {
       _loading = true;
       _error = null;
     });
+
     try {
       await FirebaseAuth.instance.sendPasswordResetEmail(email: email);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-            content: Text('Password reset email sent. Check your inbox.')),
+          content: Text('Password reset email sent. Check your inbox.'),
+        ),
       );
     } on FirebaseAuthException catch (e) {
       setState(() => _error = _prettyAuthError(e));
@@ -172,13 +204,12 @@ class _LoginPageState extends State<LoginPage> {
     }
   }
 
-  // --- Anonymous (Guest) -----------------------------------------------------
-
   Future<void> _signInAnon() async {
     setState(() {
       _loading = true;
       _error = null;
     });
+
     try {
       final cred = await FirebaseAuth.instance.signInAnonymously();
       await _upsertUserDoc(cred.user!, displayName: 'Guest');
@@ -190,26 +221,25 @@ class _LoginPageState extends State<LoginPage> {
     }
   }
 
-  // --- Google Sign-In (Android ready; SHA-1/256 configured) ------------------
-
   Future<void> _signInWithGoogle() async {
     setState(() {
       _loading = true;
       _error = null;
     });
+
     try {
       final gUser = await GoogleSignIn().signIn();
       if (gUser == null) {
         setState(() => _error = 'Google sign-in canceled.');
         return;
       }
+
       final gAuth = await gUser.authentication;
       final credential = GoogleAuthProvider.credential(
         idToken: gAuth.idToken,
         accessToken: gAuth.accessToken,
       );
 
-      // If currently anonymous, link so data/UID is preserved.
       final current = FirebaseAuth.instance.currentUser;
       UserCredential cred;
       if (current != null && current.isAnonymous) {
@@ -228,14 +258,78 @@ class _LoginPageState extends State<LoginPage> {
       await _goHome();
     } on FirebaseAuthException catch (e) {
       setState(() => _error = _prettyAuthError(e));
-    } catch (e) {
+    } catch (e, st) {
+      debugPrint('GOOGLE SIGN-IN ERROR: $e');
+      debugPrintStack(stackTrace: st);
       setState(() => _error = 'Google sign-in failed: $e');
     } finally {
       if (mounted) setState(() => _loading = false);
     }
   }
 
-  // --- UI --------------------------------------------------------------------
+  Future<void> _signInWithApple() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+
+    try {
+      final rawNonce = _generateNonce();
+      final hashedNonce = _sha256ofString(rawNonce);
+
+      final appleCredential = await SignInWithApple.getAppleIDCredential(
+        scopes: const [
+          AppleIDAuthorizationScopes.email,
+          AppleIDAuthorizationScopes.fullName,
+        ],
+        nonce: hashedNonce,
+      );
+
+      final oauthCredential = OAuthProvider(
+        'apple.com',
+      ).credential(idToken: appleCredential.identityToken, rawNonce: rawNonce);
+
+      final current = FirebaseAuth.instance.currentUser;
+      UserCredential cred;
+      if (current != null && current.isAnonymous) {
+        cred = await current.linkWithCredential(oauthCredential);
+      } else {
+        cred = await FirebaseAuth.instance.signInWithCredential(
+          oauthCredential,
+        );
+      }
+
+      final user = cred.user!;
+
+      final fullName = [
+        appleCredential.givenName,
+        appleCredential.familyName,
+      ].whereType<String>().where((s) => s.trim().isNotEmpty).join(' ').trim();
+
+      await _upsertUserDoc(
+        user,
+        email: user.email ?? appleCredential.email,
+        displayName: fullName.isNotEmpty ? fullName : user.displayName,
+        photoUrl: user.photoURL,
+      );
+
+      await _goHome();
+    } on SignInWithAppleAuthorizationException catch (e) {
+      if (e.code == AuthorizationErrorCode.canceled) {
+        setState(() => _error = 'Apple sign-in canceled.');
+      } else {
+        setState(() => _error = 'Apple sign-in failed: ${e.code.name}');
+      }
+    } on FirebaseAuthException catch (e) {
+      setState(() => _error = _prettyAuthError(e));
+    } catch (e, st) {
+      debugPrint('APPLE SIGN-IN ERROR: $e');
+      debugPrintStack(stackTrace: st);
+      setState(() => _error = 'Apple sign-in failed: $e');
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -249,9 +343,7 @@ class _LoginPageState extends State<LoginPage> {
             padding: const EdgeInsets.all(16),
             child: AnimatedSwitcher(
               duration: const Duration(milliseconds: 200),
-              child: _mode == AuthMode.none
-                  ? _buildChoice(cs)
-                  : _buildForm(cs),
+              child: _mode == AuthMode.none ? _buildChoice(cs) : _buildForm(cs),
             ),
           ),
         ),
@@ -264,8 +356,10 @@ class _LoginPageState extends State<LoginPage> {
       key: const ValueKey('choice'),
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        const Text('Stock Scout',
-            style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold)),
+        const Text(
+          'Stock Scout',
+          style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
+        ),
         const SizedBox(height: 24),
         SizedBox(
           width: double.infinity,
@@ -285,20 +379,32 @@ class _LoginPageState extends State<LoginPage> {
           ),
         ),
         const SizedBox(height: 12),
-        SizedBox(
-          width: double.infinity,
-          child: OutlinedButton.icon(
-            icon: const Icon(Icons.account_circle),
-            label: const Text('Sign in with Google'),
-            onPressed: _loading ? null : _signInWithGoogle,
+        if (Platform.isIOS)
+          SizedBox(
+            width: double.infinity,
+            child: SignInWithAppleButton(
+              onPressed: _loading ? null : _signInWithApple,
+            ),
+          )
+        else
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              icon: const Icon(Icons.account_circle),
+              label: const Text('Sign in with Google'),
+              onPressed: _loading ? null : _signInWithGoogle,
+            ),
           ),
-        ),
         const SizedBox(height: 12),
         TextButton.icon(
           onPressed: _loading ? null : _signInAnon,
           icon: const Icon(Icons.rocket_launch),
           label: const Text('Continue as Guest'),
         ),
+        if (_error != null) ...[
+          const SizedBox(height: 8),
+          Text(_error!, style: const TextStyle(color: Colors.red)),
+        ],
       ],
     );
   }
@@ -320,8 +426,10 @@ class _LoginPageState extends State<LoginPage> {
               ),
               Text(
                 isSignIn ? 'Sign In' : 'Sign Up',
-                style:
-                const TextStyle(fontSize: 20, fontWeight: FontWeight.w600),
+                style: const TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ],
           ),
@@ -336,7 +444,7 @@ class _LoginPageState extends State<LoginPage> {
               border: OutlineInputBorder(),
             ),
             validator: (v) =>
-            (v == null || !v.contains('@')) ? 'Enter a valid email' : null,
+                (v == null || !v.contains('@')) ? 'Enter a valid email' : null,
           ),
           const SizedBox(height: 12),
           TextFormField(
@@ -348,8 +456,7 @@ class _LoginPageState extends State<LoginPage> {
               border: const OutlineInputBorder(),
               suffixIcon: IconButton(
                 tooltip: _obscure ? 'Show password' : 'Hide password',
-                icon:
-                Icon(_obscure ? Icons.visibility : Icons.visibility_off),
+                icon: Icon(_obscure ? Icons.visibility : Icons.visibility_off),
                 onPressed: _loading
                     ? null
                     : () => setState(() => _obscure = !_obscure),
@@ -357,7 +464,7 @@ class _LoginPageState extends State<LoginPage> {
             ),
             onFieldSubmitted: (_) => _authenticate(),
             validator: (v) =>
-            (v == null || v.length < 6) ? 'Min 6 characters' : null,
+                (v == null || v.length < 6) ? 'Min 6 characters' : null,
           ),
           if (_error != null) ...[
             const SizedBox(height: 8),
@@ -370,10 +477,10 @@ class _LoginPageState extends State<LoginPage> {
               onPressed: _loading ? null : _authenticate,
               child: _loading
                   ? const SizedBox(
-                width: 20,
-                height: 20,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              )
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
                   : Text(isSignIn ? 'Continue' : 'Create Account'),
             ),
           ),

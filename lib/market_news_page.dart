@@ -2,10 +2,10 @@
 import 'package:flutter/material.dart';
 import 'services/history_service.dart';
 import 'news/article_detail_page.dart';
-import 'services/news_service.dart';            // For NewsItem
+import 'services/news_service.dart'; // For NewsItem
 import 'services/trending_service.dart';
 import 'widgets/trending_chips.dart';
-import 'models.dart';                           // For TrendingKeyword only
+import 'models.dart'; // For TrendingKeyword only
 
 class MarketNewsPage extends StatefulWidget {
   const MarketNewsPage({super.key});
@@ -39,7 +39,10 @@ class _MarketNewsPageState extends State<MarketNewsPage> {
   }
 
   Future<void> _load() async {
-    setState(() { _loading = true; _error = null; });
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
     try {
       final items = await NewsService.fetchMarketNews(limit: 50);
       setState(() {
@@ -48,12 +51,18 @@ class _MarketNewsPageState extends State<MarketNewsPage> {
       });
       _loadTrending(items); // kick off trending after headlines load
     } catch (e) {
-      setState(() { _error = '$e'; _loading = false; });
+      setState(() {
+        _error = '$e';
+        _loading = false;
+      });
     }
   }
 
   Future<void> _loadTrending(List<NewsItem> headlines) async {
-    setState(() { _loadingTrending = true; _trendingError = null; });
+    setState(() {
+      _loadingTrending = true;
+      _trendingError = null;
+    });
     try {
       final list = await TrendingService.fetchTrendingKeywords(
         headlines,
@@ -61,17 +70,23 @@ class _MarketNewsPageState extends State<MarketNewsPage> {
         limit: 20,
         includeReddit: false, // turn true if you want Reddit titles included
       );
-      setState(() { _trending = list; });
+      setState(() {
+        _trending = list;
+      });
     } catch (e) {
-      setState(() { _trendingError = '$e'; });
+      setState(() {
+        _trendingError = '$e';
+      });
     } finally {
-      setState(() { _loadingTrending = false; });
+      setState(() {
+        _loadingTrending = false;
+      });
     }
   }
 
   Future<void> _openDetail(NewsItem item) async {
     // Log as a recently viewed article (use link/url if available)
-    final id = item.link?.toString() ?? item.title;
+    final id = item.link;
     await HistoryService.instance.logView(
       type: 'article',
       id: id,
@@ -79,9 +94,10 @@ class _MarketNewsPageState extends State<MarketNewsPage> {
     );
 
     // Navigate to article detail
-    await Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => ArticleDetailPage(article: item)),
-    );
+    if (!mounted) return;
+    await Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (_) => ArticleDetailPage(article: item)));
   }
 
   @override
@@ -91,9 +107,13 @@ class _MarketNewsPageState extends State<MarketNewsPage> {
     // Search filter
     var list = q.isEmpty
         ? _items
-        : _items.where((n) =>
-    n.title.toLowerCase().contains(q) ||
-        n.source.toLowerCase().contains(q)).toList();
+        : _items
+              .where(
+                (n) =>
+                    n.title.toLowerCase().contains(q) ||
+                    n.source.toLowerCase().contains(q),
+              )
+              .toList();
 
     // Keyword filter (from trending chips)
     if (_selectedKeyword != null && _selectedKeyword!.isNotEmpty) {
@@ -105,7 +125,10 @@ class _MarketNewsPageState extends State<MarketNewsPage> {
       appBar: AppBar(
         title: const Text('Market News'),
         actions: [
-          IconButton(icon: const Icon(Icons.refresh), onPressed: _loading ? null : _load),
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: _loading ? null : _load,
+          ),
         ],
       ),
       body: Column(
@@ -135,8 +158,10 @@ class _MarketNewsPageState extends State<MarketNewsPage> {
                   const Icon(Icons.error_outline, color: Colors.red),
                   const SizedBox(width: 8),
                   Expanded(
-                    child: Text('Trending error: $_trendingError',
-                        style: const TextStyle(color: Colors.red)),
+                    child: Text(
+                      'Trending error: $_trendingError',
+                      style: const TextStyle(color: Colors.red),
+                    ),
                   ),
                 ],
               ),
@@ -153,11 +178,18 @@ class _MarketNewsPageState extends State<MarketNewsPage> {
           if (_error != null)
             Padding(
               padding: const EdgeInsets.all(16),
-              child: Row(children: [
-                const Icon(Icons.error_outline, color: Colors.red),
-                const SizedBox(width: 8),
-                Expanded(child: Text(_error!, style: const TextStyle(color: Colors.red))),
-              ]),
+              child: Row(
+                children: [
+                  const Icon(Icons.error_outline, color: Colors.red),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      _error!,
+                      style: const TextStyle(color: Colors.red),
+                    ),
+                  ),
+                ],
+              ),
             ),
 
           // Headlines list
@@ -167,7 +199,8 @@ class _MarketNewsPageState extends State<MarketNewsPage> {
               separatorBuilder: (_, __) => const Divider(height: 1),
               itemBuilder: (_, i) {
                 final n = list[i];
-                final when = n.pubDate?.toLocal().toString().split('.').first ?? '';
+                final when =
+                    n.pubDate?.toLocal().toString().split('.').first ?? '';
                 return InkWell(
                   onTap: () => _openDetail(n),
                   child: ListTile(
@@ -176,9 +209,14 @@ class _MarketNewsPageState extends State<MarketNewsPage> {
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                     ),
-                    subtitle: Text([n.source, when].where((s) => s.isNotEmpty).join(' • ')),
+                    subtitle: Text(
+                      [n.source, when].where((s) => s.isNotEmpty).join(' • '),
+                    ),
                     trailing: const Icon(Icons.open_in_new),
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 8,
+                    ),
                   ),
                 );
               },

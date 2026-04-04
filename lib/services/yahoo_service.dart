@@ -1,17 +1,17 @@
 // lib/services/yahoo_service.dart
 import 'dart:convert';
-import 'dart:io' show Platform;
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:http/http.dart' as http;
+
+import 'api_client.dart';
 
 class YahooSummary {
   final String symbol;
   final double price;
-  final double changePct;     // backend may omit -> defaults to 0
+  final double changePct; // backend may omit -> defaults to 0
   final String? sector;
   final double? pe;
   final double? beta;
-  final String sentiment;     // backend may omit -> defaults to 'Neutral'
+  final String sentiment; // backend may omit -> defaults to 'Neutral'
 
   YahooSummary({
     required this.symbol,
@@ -36,12 +36,8 @@ class YahooSummary {
 
 class YahooService {
   // Pick the correct base for each platform.
-  // - Android emulator must use 10.0.2.2 to reach your computer.
-  // - iOS simulator / desktop / web can use localhost.
   static String get _base {
-    if (kIsWeb) return 'http://localhost:8000';
-    if (Platform.isAndroid) return 'http://10.0.2.2:8000';
-    return 'http://localhost:8000';
+    return ApiClient.resolvedBaseUrl();
   }
 
   /// Checks if a symbol exists.
@@ -81,10 +77,10 @@ class YahooService {
 
   /// Optional: history endpoint if you add it to your backend
   static Future<List<Map<String, dynamic>>> getHistory(
-      String symbol, {
-        String period = '6mo',
-        String interval = '1d',
-      }) async {
+    String symbol, {
+    String period = '6mo',
+    String interval = '1d',
+  }) async {
     final uri = Uri.parse(
       "$_base/symbols/$symbol/history?period=$period&interval=$interval",
     );

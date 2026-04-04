@@ -3,19 +3,15 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:fl_chart/fl_chart.dart';
 
-import '../services/history_service.dart';   // <-- add logging
-import '../services/market_repo.dart';      // RedditPost, SentimentPoint, MarketRepo
-import '../social_trends_page.dart';        // "See more" navigation
+import '../services/history_service.dart'; // <-- add logging
+import '../services/market_repo.dart'; // RedditPost, SentimentPoint, MarketRepo
+import '../social_trends_page.dart'; // "See more" navigation
 
 class SocialTrendsCard extends StatefulWidget {
   final String symbol;
   final MarketRepo repo;
 
-  const SocialTrendsCard({
-    super.key,
-    required this.symbol,
-    required this.repo,
-  });
+  const SocialTrendsCard({super.key, required this.symbol, required this.repo});
 
   @override
   State<SocialTrendsCard> createState() => _SocialTrendsCardState();
@@ -23,6 +19,7 @@ class SocialTrendsCard extends StatefulWidget {
 
 class _SocialTrendsCardState extends State<SocialTrendsCard> {
   DateTime? _lastUpdated;
+  DateTime? _oldestSourceDate;
   static const int _maxPosts = 6;
 
   bool _loading = true;
@@ -53,28 +50,40 @@ class _SocialTrendsCardState extends State<SocialTrendsCard> {
 
   int _ts(String? createdUtc) {
     if (createdUtc == null || createdUtc.isEmpty) return 0;
-    final n = int.tryParse(createdUtc);
+    final n = num.tryParse(createdUtc);
     if (n != null) {
       // Heuristic: 13-digit ms, 10-digit sec
-      return n > 2e12 ? n : n * 1000;
+      final ms = n > 2000000000000 ? n : n * 1000;
+      return ms.toInt();
     }
     return DateTime.tryParse(createdUtc)?.millisecondsSinceEpoch ?? 0;
   }
 
   DateTime? _parseDateLoose(String s) {
     // Accept "YYYY-MM-DD", ISO, or millis/seconds
-    final asInt = int.tryParse(s);
-    if (asInt != null) {
-      final ms = asInt > 2e12 ? asInt : asInt * 1000;
-      return DateTime.fromMillisecondsSinceEpoch(ms, isUtc: true).toLocal();
+    final asNum = num.tryParse(s);
+    if (asNum != null) {
+      final ms = asNum > 2000000000000 ? asNum : asNum * 1000;
+      return DateTime.fromMillisecondsSinceEpoch(
+        ms.toInt(),
+        isUtc: true,
+      ).toLocal();
     }
     return DateTime.tryParse(s)?.toLocal();
+  }
+
+  String _formatPostWhen(String? createdUtc) {
+    if (createdUtc == null || createdUtc.isEmpty) return '';
+    final dt = _parseDateLoose(createdUtc);
+    if (dt == null) return createdUtc;
+    return '${dt.month}/${dt.day}/${dt.year} ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
   }
 
   List<RedditPost> _dedupePosts(List<RedditPost> posts) {
     final map = <String, RedditPost>{}; // key = normalized "title|host"
     for (final p in posts) {
-      final host = Uri.tryParse(p.url)?.host?.toLowerCase() ?? '';
+      final uri = Uri.tryParse(p.url);
+      final host = uri == null ? '' : uri.host.toLowerCase();
       final key = '${p.title.trim().toLowerCase()}|$host';
       final existing = map[key];
       if (existing == null || _ts(p.createdUtc) > _ts(existing.createdUtc)) {
@@ -86,7 +95,10 @@ class _SocialTrendsCardState extends State<SocialTrendsCard> {
     return unique;
   }
 
-  List<SentimentPoint> _filterSeriesByWindow(List<SentimentPoint> series, int days) {
+  List<SentimentPoint> _filterSeriesByWindow(
+    List<SentimentPoint> series,
+    int days,
+  ) {
     if (series.isEmpty) return series;
     final now = DateTime.now();
     final cutoff = now.subtract(Duration(days: days));
@@ -102,8 +114,23 @@ class _SocialTrendsCardState extends State<SocialTrendsCard> {
   double _avgScore(List<SentimentPoint> series) {
     if (series.isEmpty) return 0.0;
     var sum = 0.0;
-    for (final p in series) sum += p.score.toDouble();
+    for (final p in series) {
+      sum += p.score.toDouble();
+    }
     return sum / series.length;
+  }
+
+  String _coverageLabel() {
+    final oldest = _oldestSourceDate;
+    if (oldest == null) {
+      return 'No recent post data';
+    }
+    final today = DateTime.now();
+    final start = DateTime(oldest.year, oldest.month, oldest.day);
+    final end = DateTime(today.year, today.month, today.day);
+    final days = end.difference(start).inDays + 1;
+    final clamped = days.clamp(1, _windowDays);
+    return clamped == 1 ? 'Last 1 day' : 'Last $clamped days';
   }
 
   Future<void> _load() async {
@@ -114,13 +141,27 @@ class _SocialTrendsCardState extends State<SocialTrendsCard> {
 
     try {
       final posts = await widget.repo.reddit(widget.symbol, days: _windowDays);
-      final (series, summary) = await widget.repo.sentiment(widget.symbol, days: _windowDays);
+      final (series, summary) = await widget.repo.sentiment(
+        widget.symbol,
+        days: _windowDays,
+      );
       final deduped = _dedupePosts(posts);
 
       if (!mounted) return;
       setState(() {
         _posts = deduped.take(_maxPosts).toList();
         _series = series;
+        _oldestSourceDate = deduped.isEmpty
+            ? null
+            : deduped
+                  .map((p) => p.createdUtc)
+                  .whereType<String>()
+                  .map(_parseDateLoose)
+                  .whereType<DateTime>()
+                  .fold<DateTime?>(null, (oldest, dt) {
+                    if (oldest == null || dt.isBefore(oldest)) return dt;
+                    return oldest;
+                  });
         _summary = (summary.isEmpty) ? 'Neutral' : summary;
         _loading = false;
         _lastUpdated = DateTime.now();
@@ -166,7 +207,10 @@ class _SocialTrendsCardState extends State<SocialTrendsCard> {
     final q = Uri.encodeComponent('${widget.symbol} site:$host');
 
     // Log the search intent (optional but useful)
-    await HistoryService.instance.logSearch(query: '${widget.symbol} site:$host', source: 'SocialTrendsCard');
+    await HistoryService.instance.logSearch(
+      query: '${widget.symbol} site:$host',
+      source: 'SocialTrendsCard',
+    );
 
     final url = 'https://www.reddit.com/search/?q=$q&sort=new';
     final uri = Uri.tryParse(url);
@@ -205,18 +249,24 @@ class _SocialTrendsCardState extends State<SocialTrendsCard> {
 
     final range = (maxY - minY).abs().clamp(0.1, 1.0);
     // choose a clean step (0.05 / 0.1 / 0.2)
-    final double yStep = (range <= 0.2) ? 0.05 : (range <= 0.4) ? 0.1 : 0.2;
+    final double yStep = (range <= 0.2)
+        ? 0.05
+        : (range <= 0.4)
+        ? 0.1
+        : 0.2;
 
     // snap bounds to step so ticks land on nice numbers
     minY = (minY / yStep).floor() * yStep;
     maxY = (maxY / yStep).ceil() * yStep;
 
-    String xLabel(double value) {
-      final idx = value.round();
-      if (idx < 0 || idx >= parsed.length) return '';
+    String labelForX(double value) {
+      if (parsed.isEmpty) return '';
+      final idx = value.round().clamp(0, parsed.length - 1);
       final d = parsed[idx].t;
       return '${d.month}/${d.day}';
     }
+
+    final xInterval = parsed.length > 8 ? 3.0 : 2.0;
 
     return SizedBox(
       height: 200,
@@ -243,10 +293,7 @@ class _SocialTrendsCardState extends State<SocialTrendsCard> {
           minY: minY,
           maxY: maxY,
 
-          gridData: FlGridData(
-            show: true,
-            horizontalInterval: yStep,
-          ),
+          gridData: FlGridData(show: true, horizontalInterval: yStep),
           borderData: FlBorderData(show: true),
 
           titlesData: FlTitlesData(
@@ -284,16 +331,11 @@ class _SocialTrendsCardState extends State<SocialTrendsCard> {
                 getTitlesWidget: (v, meta) => Padding(
                   padding: const EdgeInsets.only(top: 2),
                   child: Text(
-                    (() {
-                      final idx = v.round();
-                      // NOTE: we build x labels inside sparkline earlier,
-                      // keep this simple since we’re not storing that array here.
-                      return '$idx';
-                    })(),
+                    labelForX(v),
                     style: const TextStyle(fontSize: 10),
                   ),
                 ),
-                interval: 1,
+                interval: xInterval,
               ),
             ),
           ),
@@ -308,7 +350,10 @@ class _SocialTrendsCardState extends State<SocialTrendsCard> {
                   if (dt != null) parsed.add((t: dt, y: sp.score.toDouble()));
                 }
                 parsed.sort((a, b) => a.t.compareTo(b.t));
-                return List.generate(parsed.length, (i) => FlSpot(i.toDouble(), parsed[i].y));
+                return List.generate(
+                  parsed.length,
+                  (i) => FlSpot(i.toDouble(), parsed[i].y),
+                );
               })(),
               isCurved: true,
               barWidth: 2,
@@ -329,7 +374,9 @@ class _SocialTrendsCardState extends State<SocialTrendsCard> {
     return Stack(
       children: [
         Card(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
           child: Padding(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
             child: Column(
@@ -346,18 +393,18 @@ class _SocialTrendsCardState extends State<SocialTrendsCard> {
                         spacing: 8,
                         runSpacing: 2,
                         children: [
-                          Text('Social Trends',
-                              style: Theme.of(context).textTheme.titleLarge),
+                          Text(
+                            'Social Trends',
+                            style: Theme.of(context).textTheme.titleLarge,
+                          ),
                           if (_lastUpdated != null)
                             Text(
                               _formatUpdated(_lastUpdated!),
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .bodySmall
+                              style: Theme.of(context).textTheme.bodySmall
                                   ?.copyWith(color: Colors.grey),
                             ),
-                          const Text(
-                            'Last 14 days',
+                          Text(
+                            _coverageLabel(),
                             style: TextStyle(fontSize: 12, color: Colors.grey),
                           ),
                         ],
@@ -401,26 +448,28 @@ class _SocialTrendsCardState extends State<SocialTrendsCard> {
                 const SizedBox(height: 6),
 
                 // Chips: Avg + Posts
-                Builder(builder: (_) {
-                  final avg = _avgScore(windowed);
-                  final color = avg > 0.05
-                      ? Colors.green
-                      : (avg < -0.05 ? Colors.red : Colors.grey);
-                  final sign = avg >= 0 ? '+' : '';
-                  return Wrap(
-                    spacing: 8,
-                    children: [
-                      Chip(
-                        label: Text('Avg: $sign${avg.toStringAsFixed(3)}'),
-                        backgroundColor: color.withOpacity(0.12),
-                        side: BorderSide(color: color.withOpacity(0.35)),
-                      ),
-                      Chip(
-                        label: Text('Posts: ${_posts.length}'),
-                      ),
-                    ],
-                  );
-                }),
+                Builder(
+                  builder: (_) {
+                    final avg = _avgScore(windowed);
+                    final color = avg > 0.05
+                        ? Colors.green
+                        : (avg < -0.05 ? Colors.red : Colors.grey);
+                    final sign = avg >= 0 ? '+' : '';
+                    return Wrap(
+                      spacing: 8,
+                      children: [
+                        Chip(
+                          label: Text('Score: $sign${avg.toStringAsFixed(3)}'),
+                          backgroundColor: color.withValues(alpha: 0.12),
+                          side: BorderSide(
+                            color: color.withValues(alpha: 0.35),
+                          ),
+                        ),
+                        Chip(label: Text('Posts: ${_posts.length}')),
+                      ],
+                    );
+                  },
+                ),
                 const SizedBox(height: 8),
 
                 // Sparkline
@@ -430,11 +479,12 @@ class _SocialTrendsCardState extends State<SocialTrendsCard> {
                 // Posts list (deduped & limited)
                 ..._posts.map((p) {
                   final host = Uri.tryParse(p.url)?.host ?? '';
-                  final when = p.createdUtc ?? '';
+                  final when = _formatPostWhen(p.createdUtc);
                   return Padding(
                     padding: const EdgeInsets.only(bottom: 6),
                     child: InkWell(
-                      onTap: () => _openUrlLogged(p.url, p.title), // <-- log then open
+                      onTap: () =>
+                          _openUrlLogged(p.url, p.title), // <-- log then open
                       child: Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
@@ -443,13 +493,13 @@ class _SocialTrendsCardState extends State<SocialTrendsCard> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text(p.title,
-                                    style:
-                                    Theme.of(context).textTheme.bodyMedium),
+                                Text(
+                                  p.title,
+                                  style: Theme.of(context).textTheme.bodyMedium,
+                                ),
                                 const SizedBox(height: 2),
                                 Wrap(
-                                  crossAxisAlignment:
-                                  WrapCrossAlignment.center,
+                                  crossAxisAlignment: WrapCrossAlignment.center,
                                   spacing: 6,
                                   children: [
                                     GestureDetector(
@@ -460,15 +510,17 @@ class _SocialTrendsCardState extends State<SocialTrendsCard> {
                                             .textTheme
                                             .bodySmall
                                             ?.copyWith(
-                                          decoration:
-                                          TextDecoration.underline,
-                                        ),
+                                              decoration:
+                                                  TextDecoration.underline,
+                                            ),
                                       ),
                                     ),
-                                    Text('•  $when',
-                                        style: Theme.of(context)
-                                            .textTheme
-                                            .bodySmall),
+                                    Text(
+                                      '•  $when',
+                                      style: Theme.of(
+                                        context,
+                                      ).textTheme.bodySmall,
+                                    ),
                                   ],
                                 ),
                               ],
@@ -496,7 +548,7 @@ class _SocialTrendsCardState extends State<SocialTrendsCard> {
                           title: 'Social Trends ${widget.symbol}',
                         );
                         if (!mounted) return;
-                        Navigator.of(context).push(
+                        Navigator.of(this.context).push(
                           MaterialPageRoute(
                             builder: (_) => SocialTrendsPage(
                               symbol: widget.symbol,

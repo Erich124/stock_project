@@ -2,18 +2,14 @@
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-import 'services/history_service.dart';       // <-- add logging
-import 'services/market_repo.dart';           // RedditPost, SentimentPoint, MarketRepo
+import 'services/history_service.dart'; // <-- add logging
+import 'services/market_repo.dart'; // RedditPost, SentimentPoint, MarketRepo
 
 class SocialTrendsPage extends StatefulWidget {
   final String symbol;
   final MarketRepo repo;
 
-  const SocialTrendsPage({
-    super.key,
-    required this.symbol,
-    required this.repo,
-  });
+  const SocialTrendsPage({super.key, required this.symbol, required this.repo});
 
   @override
   State<SocialTrendsPage> createState() => _SocialTrendsPageState();
@@ -21,6 +17,7 @@ class SocialTrendsPage extends StatefulWidget {
 
 class _SocialTrendsPageState extends State<SocialTrendsPage> {
   static const int _pageSize = 15;
+  static const int _windowDays = 14;
 
   bool _loading = true;
   String? _error;
@@ -28,6 +25,7 @@ class _SocialTrendsPageState extends State<SocialTrendsPage> {
   List<RedditPost> _allPosts = const [];
   List<RedditPost> _viewPosts = const [];
   List<SentimentPoint> _series = const [];
+  DateTime? _oldestGraphSourceDate;
   String _summary = '…';
 
   // UI state
@@ -61,12 +59,15 @@ class _SocialTrendsPageState extends State<SocialTrendsPage> {
 
   int _ts(String? createdUtc) {
     if (createdUtc == null || createdUtc.isEmpty) return 0;
-    final n = int.tryParse(createdUtc);
-    if (n != null) return n; // sec/millis okay
+    final n = num.tryParse(createdUtc);
+    if (n != null) {
+      final ms = n > 2000000000000 ? n : n * 1000;
+      return ms.toInt();
+    }
     return DateTime.tryParse(createdUtc)?.millisecondsSinceEpoch ?? 0;
   }
 
-  String _host(String url) => Uri.tryParse(url)?.host?.toLowerCase() ?? '';
+  String _host(String url) => Uri.tryParse(url)?.host.toLowerCase() ?? '';
 
   List<RedditPost> _dedupePosts(List<RedditPost> posts) {
     final map = <String, RedditPost>{};
@@ -87,9 +88,9 @@ class _SocialTrendsPageState extends State<SocialTrendsPage> {
 
     final q = _search.text.trim().toLowerCase();
     if (q.isNotEmpty) {
-      list = list.where((p) =>
-      p.title.toLowerCase().contains(q) ||
-          (_host(p.url).contains(q)));
+      list = list.where(
+        (p) => p.title.toLowerCase().contains(q) || (_host(p.url).contains(q)),
+      );
     }
 
     if (_hostFilter != 'All') {
@@ -102,9 +103,13 @@ class _SocialTrendsPageState extends State<SocialTrendsPage> {
         arr.sort((a, b) => _ts(a.createdUtc).compareTo(_ts(b.createdUtc)));
         break;
       case 'Score':
-      // if you have score on the post object, you can sort by it;
-      // otherwise fallback to newest
-        arr.sort((a, b) => _ts(b.createdUtc).compareTo(_ts(a.createdUtc)));
+        arr.sort((a, b) {
+          final bySentiment = b.sentimentScore.compareTo(a.sentimentScore);
+          if (bySentiment != 0) return bySentiment;
+          final byUpvotes = b.score.compareTo(a.score);
+          if (byUpvotes != 0) return byUpvotes;
+          return _ts(b.createdUtc).compareTo(_ts(a.createdUtc));
+        });
         break;
       case 'Newest':
       default:
@@ -119,17 +124,37 @@ class _SocialTrendsPageState extends State<SocialTrendsPage> {
       _error = null;
     });
     try {
-      final posts = await widget.repo.reddit(widget.symbol);
-      final (series, summary) = await widget.repo.sentiment(widget.symbol);
+      final posts = await widget.repo.reddit(
+        widget.symbol,
+        days: _windowDays,
+        limit: 150,
+      );
+      final (series, summary) = await widget.repo.sentiment(
+        widget.symbol,
+        days: _windowDays,
+      );
+      final graphSourcePosts = await widget.repo.reddit(
+        widget.symbol,
+        days: _windowDays,
+        limit: 1000,
+      );
 
       // build host list choices dynamically (top few common hosts)
       final filtered = posts.where((p) => p.url.isNotEmpty).toList();
-      final hosts = <String>{ for (final p in filtered) _host(p.url) }..removeWhere((h) => h.isEmpty);
+      final hosts = <String>{for (final p in filtered) _host(p.url)}
+        ..removeWhere((h) => h.isEmpty);
       final sortedHosts = hosts.toList()..sort();
+      final graphDates =
+          graphSourcePosts
+              .map((p) => _dateFromCreatedUtc(p.createdUtc))
+              .whereType<DateTime>()
+              .toList()
+            ..sort((a, b) => a.compareTo(b));
 
       setState(() {
         _allPosts = posts;
         _series = series;
+        _oldestGraphSourceDate = graphDates.isEmpty ? null : graphDates.first;
         _summary = summary.isEmpty ? 'Neutral' : summary;
         _viewPosts = _applyFilters();
         _visible = _pageSize; // reset pagination
@@ -164,14 +189,21 @@ class _SocialTrendsPageState extends State<SocialTrendsPage> {
   }
 
   String _prettyWhen(String? createdUtc) {
-    final t = _ts(createdUtc);
-    if (t == 0) return '';
-    final dt = DateTime.fromMillisecondsSinceEpoch(
-      t > 20000000000 ? t : t * 1000, // handle sec vs ms
-      isUtc: true,
-    ).toLocal();
+    final dt = _dateFromCreatedUtc(createdUtc);
+    if (dt == null) return '';
     return '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')} '
         '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+  }
+
+  DateTime? _dateFromCreatedUtc(String? createdUtc) {
+    final t = _ts(createdUtc);
+    if (t == 0) return null;
+    return DateTime.fromMillisecondsSinceEpoch(t, isUtc: true).toLocal();
+  }
+
+  String _prettyDate(DateTime? dt) {
+    if (dt == null) return 'Unavailable';
+    return '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}';
   }
 
   // ---------- build ----------
@@ -180,6 +212,24 @@ class _SocialTrendsPageState extends State<SocialTrendsPage> {
   Widget build(BuildContext context) {
     final items = _viewPosts.take(_visible).toList();
     final canLoadMore = _visible < _viewPosts.length;
+    final postDates =
+        _allPosts
+            .map((p) => _dateFromCreatedUtc(p.createdUtc))
+            .whereType<DateTime>()
+            .toList()
+          ..sort((a, b) => a.compareTo(b));
+    final oldestListDate = postDates.isEmpty ? null : postDates.first;
+    final oldestSeriesDate =
+        _series
+            .map((p) => DateTime.tryParse(p.date))
+            .whereType<DateTime>()
+            .toList()
+          ..sort((a, b) => a.compareTo(b));
+    final oldestVisibleListDate = oldestListDate;
+    final oldestGraphDate =
+        _oldestGraphSourceDate ??
+        (oldestSeriesDate.isEmpty ? null : oldestSeriesDate.first);
+    final oldestVisibleGraphDate = oldestGraphDate;
 
     return Scaffold(
       appBar: AppBar(title: Text('Social Trends – ${widget.symbol}')),
@@ -190,8 +240,10 @@ class _SocialTrendsPageState extends State<SocialTrendsPage> {
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
             child: Row(
               children: [
-                Text('Sentiment: $_summary',
-                    style: Theme.of(context).textTheme.titleMedium),
+                Text(
+                  'Sentiment: $_summary',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
                 const Spacer(),
                 IconButton(
                   tooltip: 'Refresh',
@@ -199,6 +251,28 @@ class _SocialTrendsPageState extends State<SocialTrendsPage> {
                   onPressed: _loading ? null : _load,
                 ),
               ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  Chip(
+                    label: Text(
+                      'Oldest available post: ${_prettyDate(oldestVisibleListDate)}',
+                    ),
+                  ),
+                  Chip(
+                    label: Text(
+                      'Oldest graph source post: ${_prettyDate(oldestVisibleGraphDate)}',
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
 
@@ -236,7 +310,10 @@ class _SocialTrendsPageState extends State<SocialTrendsPage> {
                   items: const [
                     DropdownMenuItem(value: 'Newest', child: Text('Newest')),
                     DropdownMenuItem(value: 'Oldest', child: Text('Oldest')),
-                    DropdownMenuItem(value: 'Score',  child: Text('Score (if available)')),
+                    DropdownMenuItem(
+                      value: 'Score',
+                      child: Text('Score (if available)'),
+                    ),
                   ],
                   onChanged: (v) {
                     if (v == null) return;
@@ -295,7 +372,10 @@ class _SocialTrendsPageState extends State<SocialTrendsPage> {
                   const Icon(Icons.error_outline, color: Colors.red),
                   const SizedBox(width: 8),
                   Expanded(
-                    child: Text(_error!, style: const TextStyle(color: Colors.red)),
+                    child: Text(
+                      _error!,
+                      style: const TextStyle(color: Colors.red),
+                    ),
                   ),
                 ],
               ),
@@ -314,9 +394,14 @@ class _SocialTrendsPageState extends State<SocialTrendsPage> {
                 final host = _host(p.url);
                 final when = _prettyWhen(p.createdUtc);
                 return ListTile(
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
                   title: Text(p.title),
-                  subtitle: Text([host, when].where((x) => x.isNotEmpty).join(' • ')),
+                  subtitle: Text(
+                    [host, when].where((x) => x.isNotEmpty).join(' • '),
+                  ),
                   trailing: const Icon(Icons.open_in_new),
                   onTap: () => _open(p.url, p.title), // <-- log then open
                 );

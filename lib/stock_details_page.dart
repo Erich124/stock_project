@@ -1,6 +1,4 @@
 // lib/stock_details_page.dart
-import 'package:flutter/foundation.dart'
-    show kIsWeb, defaultTargetPlatform, TargetPlatform;
 import 'package:flutter/material.dart';
 import 'services/history_service.dart';
 
@@ -39,7 +37,9 @@ class _StockDetailsPageState extends State<StockDetailsPage> {
     HistoryService.instance.logView(
       type: 'ticker',
       id: widget.summary.symbol,
-      title: widget.summary.symbol, // replace with company name if you load it later
+      title: widget
+          .summary
+          .symbol, // replace with company name if you load it later
     );
 
     // Live pricing (AlphaVantage or your existing source)
@@ -60,24 +60,20 @@ class _StockDetailsPageState extends State<StockDetailsPage> {
   Future<void> _loadSentimentSummary() async {
     try {
       // Repo returns a Dart record: (List<SentimentPoint>, String)
-      final (series, summaryText) =
-      await _repo.fetchSentiment(widget.summary.symbol);
+      final (series, summaryText) = await _repo.fetchSentiment(
+        widget.summary.symbol,
+      );
 
       if (!mounted) return;
 
       // Compute average score for your SentimentSummary(avg, label)
       final avg = series.isEmpty
           ? 0.0
-          : series
-          .map((e) => e.score.toDouble())
-          .reduce((a, b) => a + b) /
-          series.length;
+          : series.map((e) => e.score.toDouble()).reduce((a, b) => a + b) /
+                series.length;
 
       setState(() {
-        _sentSummary = SentimentSummary(
-          avg: avg,
-          label: summaryText,
-        );
+        _sentSummary = SentimentSummary(avg: avg, label: summaryText);
       });
     } catch (_) {
       // Ignore—SocialTrendsCard renders its own state/errors.
@@ -114,7 +110,7 @@ class _StockDetailsPageState extends State<StockDetailsPage> {
 
               if (snap.hasError) {
                 _error ??=
-                'Live price unavailable (${snap.error}). Showing cached/simulated.';
+                    'Live price unavailable (${snap.error}). Showing cached/simulated.';
               }
 
               final live = snap.data;
@@ -172,8 +168,9 @@ class _StockDetailsPageState extends State<StockDetailsPage> {
             child: ListTile(
               leading: const Icon(Icons.lightbulb),
               title: const Text('Prediction / Recommendation'),
-              subtitle:
-              Text('Current sentiment: ${_sentSummary?.label ?? '…'}'),
+              subtitle: Text(
+                'Current sentiment: ${_sentSummary?.label ?? '…'}',
+              ),
             ),
           ),
 
